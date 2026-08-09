@@ -1,12 +1,12 @@
 {
     "name": "laravel/laravel",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Self-hosted web administration panel for CentralCorp Minecraft Launcher.",
     "keywords": [
         "laravel",
         "framework"
     ],
-    "license": "MIT",
+    "license": "CC0-1.0",
     "require": {
         "php": "^8.2",
         "alexusmai/laravel-file-manager": "^3.3.3",
