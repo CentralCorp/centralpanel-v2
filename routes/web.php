@@ -143,6 +143,11 @@ Route::prefix('utils')->group(function () {
     Route::get('/instances/{slug}', [ApiController::class, 'getInstance']);
     Route::get('/instances/{slug}/files', [FileController::class, 'getInstanceFiles']);
     Route::get('/instances/{slug}/mods', [ModController::class, 'getInstanceMods']);
+    Route::get('/packages/{scope}/{filename}', [FileController::class, 'downloadPackage'])
+        ->where([
+            'scope' => '[a-zA-Z0-9_-]+',
+            'filename' => 'pkg-[a-zA-Z0-9_-]+\.zip',
+        ]);
     Route::post('/auth/microsoft/sync', [MicrosoftAuthController::class, 'sync']);
 });
 

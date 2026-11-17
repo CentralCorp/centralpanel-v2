@@ -5,12 +5,16 @@ namespace App\Http\Controllers\api;
 use App\Http\Controllers\Controller;
 use App\Models\Instance;
 use App\Models\OptionsIgnore;
+use App\Models\OptionsMods;
+use App\Support\InstancePackageBuilder;
 use App\Support\LauncherCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class FileController extends Controller
 {
@@ -18,34 +22,36 @@ class FileController extends Controller
     {
         $slug = $request->query('instance');
         if (is_string($slug) && $slug !== '') {
-            return $this->getInstanceFiles($slug);
+            return $this->getInstanceFiles($request, $slug);
         }
 
         $defaultInstance = Instance::where('is_default', true)->first()
             ?? Instance::orderBy('position')->orderBy('id')->first();
 
         if ($defaultInstance) {
-            return $this->serveInstanceDirectory($defaultInstance);
+            return $this->serveInstanceDirectory($request, $defaultInstance);
         }
 
-        $dir = \Illuminate\Support\Facades\Storage::disk('public')->path('data');
+        $dir = Storage::disk('public')->path('data');
         $urlPrefix = url('storage/data');
         $ignoredFolders = OptionsIgnore::whereNull('instance_id')->pluck('folder_name')->filter()->values()->all();
+        $optionalMods = OptionsMods::whereNull('instance_id')->where('optional', true)->pluck('file')->filter()->values()->all();
 
-        return $this->serveManifest($dir, $urlPrefix, $ignoredFolders, 'legacy_data');
+        return $this->serveManifest($request, $dir, $urlPrefix, $ignoredFolders, $optionalMods, 'legacy-data');
     }
 
-    public function getInstanceFiles(string $slug): JsonResponse
+    public function getInstanceFiles(Request $request, string $slug): JsonResponse
     {
         $instance = Instance::where('slug', $slug)->where('is_enabled', true)->first();
 
         if (!$instance) {
             if ($slug === 'default' && Instance::count() === 0) {
-                $dir = \Illuminate\Support\Facades\Storage::disk('public')->path('data');
+                $dir = Storage::disk('public')->path('data');
                 $urlPrefix = url('storage/data');
                 $ignoredFolders = OptionsIgnore::whereNull('instance_id')->pluck('folder_name')->filter()->values()->all();
+                $optionalMods = OptionsMods::whereNull('instance_id')->where('optional', true)->pluck('file')->filter()->values()->all();
 
-                return $this->serveManifest($dir, $urlPrefix, $ignoredFolders, 'default_fallback');
+                return $this->serveManifest($request, $dir, $urlPrefix, $ignoredFolders, $optionalMods, 'default-fallback');
             }
 
             return response()->json([
@@ -54,10 +60,39 @@ class FileController extends Controller
             ], 404, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         }
 
-        return $this->serveInstanceDirectory($instance);
+        return $this->serveInstanceDirectory($request, $instance);
     }
 
-    private function serveInstanceDirectory(Instance $instance): JsonResponse
+    public function downloadPackage(string $scope, string $filename): BinaryFileResponse|JsonResponse
+    {
+        if (
+            !preg_match('/^[a-zA-Z0-9_-]+$/', $scope)
+            || !preg_match('/^pkg-[a-zA-Z0-9_-]+\.zip$/', $filename)
+        ) {
+            return response()->json(['status' => 'error', 'message' => 'Invalid package identifier'], 400);
+        }
+
+        $pkgDir = Storage::disk('public')->path('launcher-packages/' . $scope);
+        $realDir = realpath($pkgDir);
+        $candidate = $pkgDir . DIRECTORY_SEPARATOR . $filename;
+        $realCandidate = realpath($candidate);
+
+        if (
+            $realDir === false
+            || $realCandidate === false
+            || !is_file($realCandidate)
+            || !str_starts_with($realCandidate, rtrim($realDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR)
+        ) {
+            return response()->json(['status' => 'error', 'message' => 'Package not found'], 404);
+        }
+
+        return response()->file($realCandidate, [
+            'Content-Type' => 'application/zip',
+            'Cache-Control' => 'public, max-age=31536000, immutable',
+        ]);
+    }
+
+    private function serveInstanceDirectory(Request $request, Instance $instance): JsonResponse
     {
         $dir = $instance->resolvedStoragePath();
         $urlPrefix = $instance->resolvedPublicUrlPrefix();
@@ -73,13 +108,38 @@ class FileController extends Controller
             ->values()
             ->all();
 
-        return $this->serveManifest($dir, $urlPrefix, $ignoredFolders, 'instance:' . $instance->slug);
+        $optionalMods = OptionsMods::query()
+            ->where('optional', true)
+            ->where(function ($q) use ($instance) {
+                $q->where('instance_id', $instance->id)
+                    ->orWhereNull('instance_id');
+            })
+            ->pluck('file')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $safeScope = 'instance-' . (preg_replace('/[^a-zA-Z0-9_-]+/', '-', $instance->slug) ?: $instance->id);
+
+        return $this->serveManifest($request, $dir, $urlPrefix, $ignoredFolders, $optionalMods, $safeScope);
     }
 
-    private function serveManifest(string $dir, string $urlPrefix, array $ignoredFolders, string $scope): JsonResponse
-    {
+    private function serveManifest(
+        Request $request,
+        string $dir,
+        string $urlPrefix,
+        array $ignoredFolders,
+        array $optionalMods,
+        string $scope
+    ): JsonResponse {
+        $wantsPackages = $request->boolean('packages')
+            || $request->header('X-Accept-Packages') === '1';
+
         if (!is_dir($dir)) {
-            return response()->json([], 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            $empty = $wantsPackages ? ['version' => 2, 'packages' => [], 'files' => []] : [];
+
+            return response()->json($empty, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         }
 
         $filesVersion = LauncherCache::filesVersion();
@@ -89,7 +149,34 @@ class FileController extends Controller
             return $this->dirToArray($dir, $urlPrefix, '', $ignoredFolders);
         });
 
-        return response()->json($files, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if (!$wantsPackages) {
+            return response()->json($files, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        }
+
+        sort($optionalMods);
+        $baseUrl = rtrim($request->getSchemeAndHttpHost() . $request->getBaseUrl(), '/');
+        if ($baseUrl === '') {
+            $baseUrl = rtrim(url('/'), '/');
+        }
+        $pkgSig = $signature . ':opt=' . implode('|', $optionalMods) . ':base=' . $baseUrl;
+        $pkgStorageDir = Storage::disk('public')->path('launcher-packages/' . $scope);
+
+        $packaged = LauncherCache::remember(
+            'launcher_packages',
+            $scope . ':' . sha1($pkgSig),
+            now()->addMinutes(30),
+            static function () use ($dir, $files, $pkgStorageDir, $scope, $baseUrl, $optionalMods): array {
+                return InstancePackageBuilder::build(
+                    $dir,
+                    $files,
+                    $pkgStorageDir,
+                    static fn (string $zipName): string => $baseUrl . '/utils/packages/' . rawurlencode($scope) . '/' . rawurlencode($zipName),
+                    $optionalMods
+                );
+            }
+        );
+
+        return response()->json($packaged, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
 
     private function buildDirectorySignature(string $dir, array $ignoredFolders): string

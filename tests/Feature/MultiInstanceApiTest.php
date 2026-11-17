@@ -516,4 +516,122 @@ class MultiInstanceApiTest extends TestCase
             ->assertJsonPath('instances.0.slug', 'default')
             ->assertJsonPath('instances.0.whitelist.0', 'Riptiaz');
     }
+
+    public function test_folder_partitioned_zip_packages_and_delta_updates(): void
+    {
+        Storage::fake('public');
+
+        $survival = Instance::create([
+            'slug' => 'survival',
+            'name' => 'Survival',
+            'is_default' => true,
+            'is_enabled' => true,
+            'minecraft_version' => '1.20.1',
+            'custom_data_dir' => 'instances/survival',
+        ]);
+
+        Storage::disk('public')->put('instances/survival/config/forge-client.toml', 'renderDistance = 12');
+        Storage::disk('public')->put('instances/survival/mods/jei.jar', 'required-jei-bytes');
+        Storage::disk('public')->put('instances/survival/mods/minimap.jar', 'optional-minimap-bytes');
+        Storage::disk('public')->put('instances/survival/servers.dat', 'servers-v1');
+
+        OptionsMods::create([
+            'instance_id' => $survival->id,
+            'file' => 'minimap.jar',
+            'name' => 'Xaero Minimap',
+            'description' => 'HUD',
+            'optional' => true,
+            'recommended' => false,
+        ]);
+
+        // 1. Legacy endpoint without header/query still returns flat array for v1 clients
+        $legacyResp = $this->getJson('/utils/instances/survival/files');
+        $legacyResp->assertOk();
+        $this->assertTrue(array_is_list($legacyResp->json()));
+        $this->assertCount(4, $legacyResp->json());
+
+        // 2. Packaged endpoint via X-Accept-Packages: 1 header (or ?packages=1)
+        $pkgResp = $this->withHeader('X-Accept-Packages', '1')
+            ->getJson('/utils/instances/survival/files');
+        $pkgResp->assertOk()
+            ->assertJsonPath('version', 2)
+            ->assertJsonCount(4, 'packages') // config, mods, mods-optional, root
+            ->assertJsonCount(4, 'files');
+
+        $packages = collect($pkgResp->json('packages'))->keyBy('folder');
+        $this->assertTrue($packages->has('config'));
+        $this->assertTrue($packages->has('mods'));
+        $this->assertTrue($packages->has('mods-optional'));
+        $this->assertTrue($packages->has('root'));
+
+        // Download the generated config ZIP package and verify its SHA-1 and internal entry
+        $configPkg = $packages->get('config');
+        $configUrlPath = parse_url($configPkg['url'], PHP_URL_PATH);
+        $dlResp = $this->get($configUrlPath);
+        $dlResp->assertOk();
+        $zipRealPath = $dlResp->baseResponse->getFile()->getPathname();
+        $this->assertSame($configPkg['hash'], hash_file('sha1', $zipRealPath));
+
+        $za = new \ZipArchive();
+        $this->assertTrue($za->open($zipRealPath) === true);
+        $this->assertSame('renderDistance = 12', $za->getFromName('config/forge-client.toml'));
+        $za->close();
+
+        // 3. Modify ONLY config/forge-client.toml -> config package ID updates, mods/mods-optional/root IDs remain identical!
+        sleep(1);
+        Storage::disk('public')->put('instances/survival/config/forge-client.toml', 'renderDistance = 16');
+
+        $pkgResp2 = $this->getJson('/utils/instances/survival/files?packages=1');
+        $pkgResp2->assertOk();
+        $packages2 = collect($pkgResp2->json('packages'))->keyBy('folder');
+
+        $this->assertNotSame($configPkg['id'], $packages2->get('config')['id']);
+        $this->assertSame($packages->get('mods')['id'], $packages2->get('mods')['id']);
+        $this->assertSame($packages->get('mods-optional')['id'], $packages2->get('mods-optional')['id']);
+        $this->assertSame($packages->get('root')['id'], $packages2->get('root')['id']);
+
+        // Old stale config ZIP must be pruned automatically
+        $this->get($configUrlPath)->assertNotFound();
+
+        // 4. Verify small-chunk splitting when maxChunkFiles = 2 on a folder with 5 files
+        $smallChunks = \App\Support\InstancePackageBuilder::build(
+            $survival->resolvedStoragePath(),
+            [
+                ['path' => 'kubejs/s1.js', 'size' => 10, 'hash' => sha1('1'), 'url' => 'http://test/1'],
+                ['path' => 'kubejs/s2.js', 'size' => 10, 'hash' => sha1('2'), 'url' => 'http://test/2'],
+                ['path' => 'kubejs/s3.js', 'size' => 10, 'hash' => sha1('3'), 'url' => 'http://test/3'],
+                ['path' => 'kubejs/s4.js', 'size' => 10, 'hash' => sha1('4'), 'url' => 'http://test/4'],
+                ['path' => 'kubejs/s5.js', 'size' => 10, 'hash' => sha1('5'), 'url' => 'http://test/5'],
+            ],
+            Storage::disk('public')->path('launcher-packages/chunk-test'),
+            static fn (string $z): string => 'http://test/' . $z,
+            [],
+            1024,
+            2
+        );
+        // Since files don't exist on disk in chunk-test fake list unless created, create them and verify 3 chunks!
+        foreach (range(1, 5) as $n) {
+            Storage::disk('public')->put("instances/survival/kubejs/s{$n}.js", (string) $n);
+        }
+        $smallChunks = \App\Support\InstancePackageBuilder::build(
+            $survival->resolvedStoragePath(),
+            [
+                ['path' => 'kubejs/s1.js', 'size' => 1, 'hash' => sha1('1'), 'url' => 'http://test/1'],
+                ['path' => 'kubejs/s2.js', 'size' => 1, 'hash' => sha1('2'), 'url' => 'http://test/2'],
+                ['path' => 'kubejs/s3.js', 'size' => 1, 'hash' => sha1('3'), 'url' => 'http://test/3'],
+                ['path' => 'kubejs/s4.js', 'size' => 1, 'hash' => sha1('4'), 'url' => 'http://test/4'],
+                ['path' => 'kubejs/s5.js', 'size' => 1, 'hash' => sha1('5'), 'url' => 'http://test/5'],
+            ],
+            Storage::disk('public')->path('launcher-packages/chunk-test'),
+            static fn (string $z): string => 'http://test/' . $z,
+            [],
+            1024,
+            2
+        );
+        $this->assertCount(3, $smallChunks['packages']);
+        $this->assertSame(1, $smallChunks['packages'][0]['part']);
+        $this->assertSame(2, $smallChunks['packages'][1]['part']);
+        $this->assertSame(3, $smallChunks['packages'][2]['part']);
+    }
 }
+
