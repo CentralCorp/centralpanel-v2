@@ -10,15 +10,98 @@
             @csrf
 
             <div class="panel-muted-surface p-3 mb-4">
-                <h2 class="panel-section-title"><i class="bi bi-power"></i>{{ __('messages.whitelist.activation') }}</h2>
-                <div class="form-check form-switch">
-                    <input type="hidden" name="whitelist" value="0">
-                    <input type="checkbox" class="form-check-input" id="whitelist" name="whitelist" value="1"
-                           {{ ($securityOptions->whitelist ?? false) ? 'checked' : '' }}>
-                    <label class="form-check-label" for="whitelist">{{ __('messages.whitelist.enable') }}</label>
+                <div class="row g-3 align-items-center">
+                    <div class="col-md-7">
+                        <h2 class="panel-section-title mb-2">
+                            <i class="bi bi-power"></i>{{ __('messages.whitelist.activation', ['name' => $activeInstance->name ?? 'Default']) }}
+                        </h2>
+                        <div class="form-check form-switch">
+                            <input type="hidden" name="whitelist" value="0">
+                            <input type="checkbox" class="form-check-input" id="whitelist" name="whitelist" value="1"
+                                   {{ ($activeInstance->whitelist_activate ?? $securityOptions->whitelist ?? false) ? 'checked' : '' }}>
+                            <label class="form-check-label" for="whitelist">{{ __('messages.whitelist.enable') }}</label>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <label for="scope" class="form-label">{{ __('messages.whitelist.scope_label') }}</label>
+                        <select class="form-select" id="scope" name="scope">
+                            <option value="instance">{{ __('messages.whitelist.scope_instance', ['name' => $activeInstance->name ?? 'Default']) }}</option>
+                            <option value="global">{{ __('messages.whitelist.scope_global') }}</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
+            {{-- Manual Minecraft Usernames --}}
+            <div class="panel-muted-surface p-3 mb-4">
+                <h2 class="panel-section-title"><i class="bi bi-person-plus"></i>{{ __('messages.whitelist.manual_users_section') }}</h2>
+                <div class="mb-2">
+                    <label for="manual_users" class="form-label">{{ __('messages.whitelist.manual_users_label') }}</label>
+                    <textarea class="form-control" id="manual_users" name="manual_users" rows="2"
+                              placeholder="{{ __('messages.whitelist.manual_users_placeholder') }}"></textarea>
+                    <div class="form-text">{{ __('messages.whitelist.manual_users_hint') }}</div>
+                </div>
+            </div>
+
+            {{-- Panel Roles & Microsoft Players --}}
+            <div class="row g-4 mb-4">
+                <div class="col-12 col-lg-6">
+                    <div class="panel-muted-surface p-3 h-100">
+                        <h2 class="panel-section-title"><i class="bi bi-person-badge"></i>{{ __('messages.whitelist.panel_roles_section') }}</h2>
+                        @php
+                            $unwhitelistedPanelRoles = ($panelRoles ?? collect())->filter(fn ($r) => !in_array($r->name, $whitelistedRoleNames ?? [], true));
+                        @endphp
+                        @if($unwhitelistedPanelRoles->isEmpty())
+                            <p class="text-muted small mb-0">{{ __('messages.whitelist.no_roles_available') }}</p>
+                        @else
+                            <div class="row">
+                                @foreach($unwhitelistedPanelRoles as $pRole)
+                                    <div class="col-sm-6 mb-2">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="panel_roles[]"
+                                                   value="{{ $pRole->name }}" id="panel_role_{{ $pRole->id }}">
+                                            <label class="form-check-label d-inline-flex align-items-center gap-1" for="panel_role_{{ $pRole->id }}">
+                                                <span class="badge" style="background-color: {{ $pRole->color }};">{{ $pRole->name }}</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+                </div>
+
+                <div class="col-12 col-lg-6">
+                    <div class="panel-muted-surface p-3 h-100">
+                        <h2 class="panel-section-title"><i class="bi bi-controller"></i>{{ __('messages.whitelist.microsoft_players_section') }}</h2>
+                        @php
+                            $unwhitelistedMsPlayers = ($microsoftPlayers ?? collect())->filter(fn ($p) => !in_array($p->username, $whitelistedUsernames ?? [], true));
+                        @endphp
+                        @if($unwhitelistedMsPlayers->isEmpty())
+                            <p class="text-muted small mb-0">{{ __('messages.whitelist.no_microsoft_players') }}</p>
+                        @else
+                            <div class="row scroll-panel-sm">
+                                @foreach($unwhitelistedMsPlayers as $msPlayer)
+                                    <div class="col-sm-6 mb-2">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" name="whitelist_users[]"
+                                                   value="{{ $msPlayer->username }}" id="ms_player_{{ $msPlayer->id }}">
+                                            <label class="form-check-label" for="ms_player_{{ $msPlayer->id }}">
+                                                <strong>{{ $msPlayer->username }}</strong>
+                                                @if($msPlayer->role)
+                                                    <span class="badge ms-1" style="background-color: {{ $msPlayer->role->color }};">{{ $msPlayer->role->name }}</span>
+                                                @endif
+                                            </label>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+
+            {{-- Azuriom Users & Roles (when configured) --}}
             @if($hasAzuriomApi)
                 <div class="panel-muted-surface p-3 mb-4">
                     <h2 class="panel-section-title"><i class="bi bi-people"></i>{{ __('messages.whitelist.azuriom_users') }}</h2>
@@ -68,8 +151,8 @@
                     </div>
                 </div>
             @else
-                <div class="alert alert-warning">
-                    <i class="bi bi-exclamation-triangle me-2"></i>
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle me-2"></i>
                     {{ __('messages.whitelist.api_not_configured') }}
                 </div>
             @endif
@@ -98,7 +181,14 @@
                     <div class="panel-list" id="whitelistedUsersList">
                         @foreach($users as $user)
                             <div class="panel-list-item">
-                                <span class="text-truncate whitelist-username">{{ $user->users }}</span>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="text-truncate whitelist-username">{{ $user->users }}</span>
+                                    @if($user->instance_id === null)
+                                        <span class="badge text-bg-primary">{{ __('messages.whitelist.global_badge') }}</span>
+                                    @else
+                                        <span class="badge text-bg-secondary">{{ __('messages.whitelist.instance_badge') }}</span>
+                                    @endif
+                                </div>
                                 <form action="{{ route('admin.whitelist.destroyUser', $user->id) }}" method="POST">
                                     @csrf
                                     @method('DELETE')
@@ -130,7 +220,14 @@
                     <div class="panel-list" id="whitelistedRolesList">
                         @foreach($roles as $role)
                             <div class="panel-list-item">
-                                <span class="text-truncate whitelist-rolename">{{ $role->role }}</span>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="text-truncate whitelist-rolename">{{ $role->role }}</span>
+                                    @if($role->instance_id === null)
+                                        <span class="badge text-bg-primary">{{ __('messages.whitelist.global_badge') }}</span>
+                                    @else
+                                        <span class="badge text-bg-secondary">{{ __('messages.whitelist.instance_badge') }}</span>
+                                    @endif
+                                </div>
                                 <form action="{{ route('admin.whitelist.destroyRole', $role->id) }}" method="POST">
                                     @csrf
                                     @method('DELETE')

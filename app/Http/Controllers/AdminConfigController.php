@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\LauncherCache;
 use App\Support\PanelOptions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
@@ -18,22 +19,33 @@ class AdminConfigController extends Controller
 
     public function update(Request $request)
     {
+        $options = PanelOptions::general();
+        $authMode = $request->input('auth_mode', $options->auth_mode ?: 'azuriom');
+        $requiresAzuriom = in_array($authMode, ['azuriom', 'both'], true);
+
         $validated = $request->validate([
             'app_name' => 'required|string|max:255',
-            'azuriom_url' => 'required|url|max:255',
-            'azuriom_api_key' => 'required|string|max:255',
+            'auth_mode' => 'nullable|in:azuriom,microsoft,both',
+            'microsoft_client_id' => 'nullable|string|max:255',
+            'news_source' => 'nullable|in:panel,azuriom,both',
+            'azuriom_url' => ($requiresAzuriom ? 'required' : 'nullable') . '|url|max:255',
+            'azuriom_api_key' => ($requiresAzuriom ? 'required' : 'nullable') . '|string|max:255',
         ]);
 
-        $options = PanelOptions::general();
         $options->fill([
-            'azuriom_url' => $validated['azuriom_url'],
-            'azuriom_api_key' => $validated['azuriom_api_key'],
+            'auth_mode' => $validated['auth_mode'] ?? $authMode,
+            'microsoft_client_id' => !empty($validated['microsoft_client_id']) ? trim($validated['microsoft_client_id']) : null,
+            'news_source' => $validated['news_source'] ?? ($options->news_source ?: 'azuriom'),
+            'azuriom_url' => $validated['azuriom_url'] ?? $options->azuriom_url,
+            'azuriom_api_key' => $validated['azuriom_api_key'] ?? $options->azuriom_api_key,
         ])->save();
 
         if ($validated['app_name'] !== config('app.name')) {
             $this->updateEnvValue('APP_NAME', '"' . str_replace('"', '\"', $validated['app_name']) . '"');
             Artisan::call('config:clear');
         }
+
+        LauncherCache::flush();
 
         return redirect()->route('admin.config')->with('success', __('messages.flash.config_updated'));
     }

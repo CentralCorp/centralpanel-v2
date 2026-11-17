@@ -3,23 +3,37 @@
 namespace App\Http\Controllers;
 
 use App\Models\OptionsIgnore;
+use App\Support\ActiveInstance;
+use App\Support\LauncherCache;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 class AdminIgnoreController extends Controller
 {
     public function index()
     {
-        $folders = OptionsIgnore::orderBy('folder_name')->get();
+        $activeInstance = ActiveInstance::current();
 
-        return view('admin.ignore', compact('folders'));
+        $folders = OptionsIgnore::query()
+            ->where(function ($q) use ($activeInstance) {
+                $q->where('instance_id', $activeInstance->id)
+                    ->orWhereNull('instance_id');
+            })
+            ->orderByRaw('CASE WHEN instance_id IS NULL THEN 0 ELSE 1 END')
+            ->orderBy('folder_name')
+            ->get();
+
+        return view('admin.ignore', compact('folders', 'activeInstance'));
     }
 
     public function store(Request $request)
     {
         $validated = $request->validate([
             'ignored_folders' => 'nullable|string|max:2000',
+            'scope' => 'nullable|in:instance,global',
         ]);
+
+        $activeInstance = ActiveInstance::current();
+        $instanceId = ($validated['scope'] ?? 'instance') === 'global' ? null : $activeInstance->id;
 
         $folders = collect(explode(',', $validated['ignored_folders'] ?? ''))
             ->map(fn ($folder) => trim($folder))
@@ -27,10 +41,13 @@ class AdminIgnoreController extends Controller
             ->unique();
 
         foreach ($folders as $folder) {
-            OptionsIgnore::firstOrCreate(['folder_name' => $folder]);
+            OptionsIgnore::firstOrCreate([
+                'instance_id' => $instanceId,
+                'folder_name' => $folder,
+            ]);
         }
 
-        $this->bumpFileManifestVersion();
+        LauncherCache::flush();
 
         return redirect()->route('admin.ignore')->with('success', __('messages.flash.ignore_updated'));
     }
@@ -38,13 +55,8 @@ class AdminIgnoreController extends Controller
     public function destroyFolder($id)
     {
         OptionsIgnore::findOrFail($id)->delete();
-        $this->bumpFileManifestVersion();
+        LauncherCache::flush();
 
         return redirect()->route('admin.ignore')->with('success', __('messages.flash.ignore_deleted'));
-    }
-
-    private function bumpFileManifestVersion(): void
-    {
-        Cache::forever('launcher_files_version', ((int) Cache::get('launcher_files_version', 1)) + 1);
     }
 }

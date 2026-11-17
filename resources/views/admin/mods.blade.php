@@ -4,6 +4,19 @@
 @section('page-title', __('messages.mods.header'))
 
 @section('content')
+@if(isset($activeInstance))
+    <div class="alert alert-info d-flex justify-content-between align-items-center mb-3">
+        <span>
+            <i class="bi bi-layers me-2"></i>
+            {{ __('messages.mods.active_instance_hint', ['name' => $activeInstance->name, 'dir' => $activeInstance->resolvedDataDir()]) }}
+        </span>
+        <a href="{{ route('admin.file-manager') }}" class="btn btn-sm btn-outline-primary btn-icon">
+            <i class="bi bi-folder"></i>
+            {{ __('messages.sidebar.file_manager') }}
+        </a>
+    </div>
+@endif
+
 <div class="row g-4">
     <div class="col-12 col-xl-5">
         <div class="card shadow-sm h-100">

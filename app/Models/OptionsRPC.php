@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\FlushesLauncherCache;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class OptionsRPC extends Model
 {
     use HasFactory;
+    use FlushesLauncherCache;
 
     protected $table = 'options_rpc'; // Assurez-vous que la table correspond à votre migration
     protected $fillable = [

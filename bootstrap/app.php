@@ -14,8 +14,13 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->append(\App\Http\Middleware\EnsurePanelInstalled::class);
 
+        $middleware->validateCsrfTokens(except: [
+            'utils/auth/microsoft/*',
+        ]);
+
         $middleware->web(append: [
             \App\Http\Middleware\SetLocale::class,
+            \App\Http\Middleware\SyncActiveInstanceDisk::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

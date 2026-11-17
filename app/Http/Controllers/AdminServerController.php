@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OptionsServer;
 use App\Request\AzuriomApi;
+use App\Support\LauncherCache;
 use App\Support\PanelOptions;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -26,25 +27,137 @@ class AdminServerController extends Controller
     {
         $options = PanelOptions::general();
         $servers = OptionsServer::query()->orderByDesc('is_default')->orderBy('server_name')->get();
+        $hasAzuriomApi = $this->azuriomApi !== null;
 
-        $defaultServers = $servers->pluck('is_default', 'server_id')->toArray();
-        $serversArray = $servers->map(fn (OptionsServer $server) => [
-            'id' => $server->server_id,
-            'name' => $server->server_name,
-            'address' => $server->server_ip,
-            'port' => $server->server_port,
-            'type' => $server->type ?? 'minecraft',
-            'icon' => $server->icon,
-            'icon_local' => $server->icon_local,
-            'icon_url' => $server->icon_url,
-        ])->toArray();
+        $defaultServers = [];
+        $serversArray = $servers->map(function (OptionsServer $server) use (&$defaultServers) {
+            $lookupKey = $server->server_id ?? $server->id;
+            $defaultServers[$lookupKey] = (bool) $server->is_default;
+
+            return [
+                'pk' => $server->id,
+                'id' => $lookupKey,
+                'server_id' => $server->server_id,
+                'is_manual' => $server->server_id === null || $server->server_id < 0,
+                'name' => $server->server_name,
+                'address' => $server->server_ip,
+                'port' => $server->server_port,
+                'type' => $server->type ?? 'minecraft',
+                'icon' => $server->icon,
+                'icon_local' => $server->icon_local,
+                'icon_url' => $server->icon_url,
+            ];
+        })->toArray();
 
         return view('admin.server', [
             'servers' => $serversArray,
             'options' => $options,
             'error' => null,
             'defaultServers' => $defaultServers,
+            'hasAzuriomApi' => $hasAzuriomApi,
         ]);
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'server_name' => 'required|string|max:255',
+            'server_ip' => 'required|string|max:255',
+            'server_port' => 'required|string|max:10',
+            'type' => 'nullable|string|max:50',
+            'is_default' => 'boolean',
+            'icon' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+        ]);
+
+        $iconLocal = $request->hasFile('icon')
+            ? $request->file('icon')->store('server_icons', 'public')
+            : null;
+
+        $hasDefault = OptionsServer::where('is_default', true)->exists();
+        $makeDefault = !$hasDefault || $request->boolean('is_default');
+
+        $minServerId = (int) OptionsServer::min('server_id');
+        $nextLocalServerId = min(0, $minServerId) - 1;
+
+        $server = DB::transaction(function () use ($validated, $iconLocal, $makeDefault, $nextLocalServerId) {
+            if ($makeDefault) {
+                OptionsServer::where('is_default', true)->update(['is_default' => false]);
+            }
+
+            return OptionsServer::create([
+                'server_id' => $nextLocalServerId,
+                'server_name' => trim($validated['server_name']),
+                'server_ip' => trim($validated['server_ip']),
+                'server_port' => trim($validated['server_port']),
+                'type' => ($validated['type'] ?? null) ?: 'minecraft',
+                'icon_local' => $iconLocal,
+                'is_default' => $makeDefault,
+            ]);
+        });
+
+        LauncherCache::flush();
+
+        return redirect()->route('admin.server')->with('success', __('messages.flash.server_created', ['name' => $server->server_name]));
+    }
+
+    public function updateServer(Request $request, int $id)
+    {
+        $server = $this->findServer($id);
+        if (!$server) {
+            return redirect()->route('admin.server')->with('error', __('messages.flash.server_not_found'));
+        }
+
+        $validated = $request->validate([
+            'server_name' => 'required|string|max:255',
+            'server_ip' => 'required|string|max:255',
+            'server_port' => 'required|string|max:10',
+            'type' => 'nullable|string|max:50',
+            'icon' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+        ]);
+
+        if ($request->hasFile('icon')) {
+            if ($server->icon_local) {
+                Storage::disk('public')->delete($server->icon_local);
+            }
+            $server->icon_local = $request->file('icon')->store('server_icons', 'public');
+        }
+
+        $server->fill([
+            'server_name' => trim($validated['server_name']),
+            'server_ip' => trim($validated['server_ip']),
+            'server_port' => trim($validated['server_port']),
+            'type' => ($validated['type'] ?? null) ?: ($server->type ?: 'minecraft'),
+        ])->save();
+
+        LauncherCache::flush();
+
+        return redirect()->route('admin.server')->with('success', __('messages.flash.server_updated'));
+    }
+
+    public function destroy(int $id)
+    {
+        $server = $this->findServer($id);
+        if (!$server) {
+            return redirect()->route('admin.server')->with('error', __('messages.flash.server_not_found'));
+        }
+
+        $name = $server->server_name;
+        $wasDefault = $server->is_default;
+
+        if ($server->icon_local) {
+            Storage::disk('public')->delete($server->icon_local);
+        }
+
+        $server->delete();
+
+        if ($wasDefault) {
+            $replacement = OptionsServer::orderBy('id')->first();
+            $replacement?->update(['is_default' => true]);
+        }
+
+        LauncherCache::flush();
+
+        return redirect()->route('admin.server')->with('success', __('messages.flash.server_deleted', ['name' => $name]));
     }
 
     public function sync()
@@ -89,6 +202,8 @@ class AdminServerController extends Controller
                 }
             });
 
+            LauncherCache::flush();
+
             return redirect()->route('admin.server')->with('success', __('messages.flash.server_sync_success', ['count' => $syncedCount]));
         } catch (\RuntimeException $e) {
             return redirect()->route('admin.server')->with('error', __('messages.flash.server_sync_error') . ' ' . $e->getMessage());
@@ -107,13 +222,14 @@ class AdminServerController extends Controller
         $serverOptions = OptionsServer::firstOrFail();
 
         if ($request->hasFile('icon')) {
-            if ($serverOptions->icon) {
-                Storage::disk('uploads')->delete($serverOptions->icon);
+            if ($serverOptions->icon_local) {
+                Storage::disk('public')->delete($serverOptions->icon_local);
             }
-            $serverOptions->icon = $request->file('icon')->store('server_icon', 'uploads');
+            $serverOptions->icon_local = $request->file('icon')->store('server_icons', 'public');
         }
 
         $serverOptions->fill(collect($validated)->except('icon')->all())->save();
+        LauncherCache::flush();
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_updated'));
     }
@@ -121,18 +237,22 @@ class AdminServerController extends Controller
     public function setDefaultServer(Request $request)
     {
         $validated = $request->validate([
-            'server_id' => 'required|integer|exists:options_server,server_id',
+            'server_id' => 'required|integer',
         ]);
 
-        $server = DB::transaction(function () use ($validated) {
-            OptionsServer::where('is_default', true)->update(['is_default' => false]);
-            $server = OptionsServer::where('server_id', $validated['server_id'])->firstOrFail();
-            $server->forceFill(['is_default' => true])->save();
+        $target = $this->findServer((int) $validated['server_id']);
+        if (!$target) {
+            return redirect()->route('admin.server')->with('error', __('messages.flash.server_not_found'));
+        }
 
-            return $server;
+        DB::transaction(function () use ($target) {
+            OptionsServer::where('is_default', true)->update(['is_default' => false]);
+            $target->forceFill(['is_default' => true])->save();
         });
 
-        return redirect()->route('admin.server')->with('success', __('messages.flash.server_set_default', ['name' => $server->server_name]));
+        LauncherCache::flush();
+
+        return redirect()->route('admin.server')->with('success', __('messages.flash.server_set_default', ['name' => $target->server_name]));
     }
 
     public function updateIcon(Request $request, $serverId)
@@ -141,7 +261,7 @@ class AdminServerController extends Controller
             'icon' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
-        $server = OptionsServer::where('server_id', $serverId)->first();
+        $server = $this->findServer((int) $serverId);
         if (!$server) {
             return redirect()->route('admin.server')->with('error', __('messages.flash.server_not_found'));
         }
@@ -152,13 +272,14 @@ class AdminServerController extends Controller
 
         $server->icon_local = $request->file('icon')->store('server_icons', 'public');
         $server->save();
+        LauncherCache::flush();
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_icon_updated', ['name' => $server->server_name]));
     }
 
     public function deleteIcon($serverId)
     {
-        $server = OptionsServer::where('server_id', $serverId)->first();
+        $server = $this->findServer((int) $serverId);
         if (!$server) {
             return redirect()->route('admin.server')->with('error', __('messages.flash.server_not_found'));
         }
@@ -166,9 +287,16 @@ class AdminServerController extends Controller
         if ($server->icon_local) {
             Storage::disk('public')->delete($server->icon_local);
             $server->forceFill(['icon_local' => null])->save();
+            LauncherCache::flush();
         }
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_icon_deleted', ['name' => $server->server_name]));
+    }
+
+    private function findServer(int $identifier): ?OptionsServer
+    {
+        return OptionsServer::where('server_id', $identifier)->first()
+            ?? OptionsServer::find($identifier);
     }
 
     private function normalizeIconPath(?string $iconPath): ?string

@@ -44,8 +44,11 @@
         __('messages.sidebar.security_header') => [
             ['route' => 'admin.security', 'icon' => 'bi-shield-lock', 'label' => __('messages.sidebar.security_link'), 'match' => 'admin.security*'],
             ['route' => 'admin.whitelist', 'icon' => 'bi-list-check', 'label' => __('messages.sidebar.whitelist'), 'match' => 'admin.whitelist*'],
+            ['route' => 'admin.roles', 'icon' => 'bi-person-badge', 'label' => __('messages.sidebar.roles'), 'match' => 'admin.roles*'],
+            ['route' => 'admin.players', 'icon' => 'bi-controller', 'label' => __('messages.sidebar.players'), 'match' => 'admin.players*'],
         ],
         __('messages.sidebar.client') => [
+            ['route' => 'admin.instances', 'icon' => 'bi-layers', 'label' => __('messages.sidebar.instances'), 'match' => 'admin.instances*'],
             ['route' => 'admin.mods', 'icon' => 'bi-box-seam', 'label' => __('messages.sidebar.optional_mods'), 'match' => 'admin.mods*'],
             ['route' => 'admin.loader', 'icon' => 'bi-cloud-arrow-down', 'label' => __('messages.sidebar.loader'), 'match' => 'admin.loader*'],
             ['route' => 'admin.ignore', 'icon' => 'bi-slash-circle', 'label' => __('messages.sidebar.ignore'), 'match' => 'admin.ignore*'],
@@ -53,8 +56,12 @@
         __('messages.sidebar.interface') => [
             ['route' => 'admin.ui', 'icon' => 'bi-window-sidebar', 'label' => __('messages.sidebar.ui'), 'match' => 'admin.ui*'],
             ['route' => 'admin.bg', 'icon' => 'bi-image', 'label' => __('messages.sidebar.background'), 'match' => 'admin.bg*'],
+            ['route' => 'admin.news', 'icon' => 'bi-newspaper', 'label' => __('messages.sidebar.news'), 'match' => 'admin.news*'],
         ],
     ];
+
+    $navInstances = \App\Support\ActiveInstance::all();
+    $currentActiveInstance = $navInstances->isNotEmpty() ? \App\Support\ActiveInstance::current() : null;
 @endphp
 
 <body>
@@ -100,6 +107,39 @@
             </div>
 
             <div class="ms-auto d-flex align-items-center gap-2">
+                @if($currentActiveInstance)
+                    <div class="dropdown">
+                        <button class="btn btn-outline-primary btn-sm dropdown-toggle btn-icon" type="button" id="instanceSwitcherDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-layers"></i>
+                            <span class="d-none d-sm-inline">{{ __('messages.sidebar.active_instance') }} :</span>
+                            <strong>{{ $currentActiveInstance->name }}</strong>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm" aria-labelledby="instanceSwitcherDropdown">
+                            @foreach($navInstances as $inst)
+                                <li>
+                                    <form action="{{ route('admin.instances.switch') }}" method="POST">
+                                        @csrf
+                                        <input type="hidden" name="instance_id" value="{{ $inst->id }}">
+                                        <button type="submit" class="dropdown-item d-flex justify-content-between align-items-center gap-3 {{ $inst->id === $currentActiveInstance->id ? 'active' : '' }}">
+                                            <span>
+                                                <i class="bi {{ $inst->id === $currentActiveInstance->id ? 'bi-check2-circle' : 'bi-box' }} me-2"></i>
+                                                {{ $inst->name }}
+                                            </span>
+                                            <span class="small opacity-75">{{ $inst->minecraft_version }}</span>
+                                        </button>
+                                    </form>
+                                </li>
+                            @endforeach
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item" href="{{ route('admin.instances') }}">
+                                    <i class="bi bi-gear me-2"></i>{{ __('messages.sidebar.manage_instances') }}
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                @endif
+
                 <button class="btn btn-outline-secondary btn-square"
                         id="themeToggle"
                         type="button"

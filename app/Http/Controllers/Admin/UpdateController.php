@@ -54,6 +54,8 @@ class UpdateController extends Controller
             default => PanelCache::clearAll(),
         };
 
+        \App\Support\LauncherCache::flush();
+
         return redirect()
             ->back()
             ->with('success', __('messages.flash.cache_cleared', ['count' => count($results)]));

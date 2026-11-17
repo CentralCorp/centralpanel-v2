@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\FlushesLauncherCache;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class OptionsUI extends Model
 {
     use HasFactory;
+    use FlushesLauncherCache;
 
     protected $table = 'options_ui';
     protected $fillable = [

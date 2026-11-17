@@ -324,8 +324,9 @@ class InstallController extends Controller
                 ]);
             }
 
-            // Step 2: Run migrations
+            // Step 2: Run migrations & seed panel defaults + default instance
             Artisan::call('migrate:fresh', ['--force' => true]);
+            \App\Support\PanelOptions::ensureDefaults();
 
             // Step 3: Create admin user
             $user = User::create([

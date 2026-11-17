@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\ActiveInstance;
 use App\Support\PanelInstallation;
 use Illuminate\Support\Facades\Auth;
 
@@ -22,6 +23,8 @@ class PanelController extends Controller
 
     public function fileManager()
     {
-        return view('admin.file-manager');
+        $activeInstance = ActiveInstance::current();
+
+        return view('admin.file-manager', compact('activeInstance'));
     }
 }

@@ -4,6 +4,13 @@
 @section('page-title', __('messages.ignore.title'))
 
 @section('content')
+@if(isset($activeInstance))
+    <div class="alert alert-info mb-3">
+        <i class="bi bi-layers me-2"></i>
+        {{ __('messages.ignore.active_instance_hint', ['name' => $activeInstance->name]) }}
+    </div>
+@endif
+
 <div class="row g-4">
     <div class="col-12 col-xl-5">
         <div class="card shadow-sm h-100">
@@ -13,6 +20,13 @@
             <div class="card-body">
                 <form action="{{ route('admin.ignore.store') }}" method="POST">
                     @csrf
+                    <div class="mb-3">
+                        <label for="scope" class="form-label">{{ __('messages.ignore.scope_label') }}</label>
+                        <select class="form-select" id="scope" name="scope">
+                            <option value="instance">{{ __('messages.ignore.scope_instance', ['name' => $activeInstance->name ?? 'Default']) }}</option>
+                            <option value="global">{{ __('messages.ignore.scope_global') }}</option>
+                        </select>
+                    </div>
                     <div class="mb-3">
                         <label for="ignored_folders" class="form-label">{{ __('messages.ignore.paths_label') }}</label>
                         <input type="text" class="form-control" id="ignored_folders" name="ignored_folders" placeholder="{{ __('messages.ignore.paths_placeholder') }}">
@@ -42,7 +56,14 @@
                     <div class="panel-list">
                         @foreach($folders as $folder)
                             <div class="panel-list-item">
-                                <span class="text-break">{{ $folder->folder_name }}</span>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="text-break font-monospace">{{ $folder->folder_name }}</span>
+                                    @if($folder->instance_id === null)
+                                        <span class="badge text-bg-primary">{{ __('messages.ignore.global_badge') }}</span>
+                                    @else
+                                        <span class="badge text-bg-secondary">{{ __('messages.ignore.instance_badge') }}</span>
+                                    @endif
+                                </div>
                                 <form action="{{ route('admin.ignore.destroyFolder', $folder->id) }}" method="POST">
                                     @csrf
                                     @method('DELETE')

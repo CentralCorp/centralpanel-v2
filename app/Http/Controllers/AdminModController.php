@@ -3,32 +3,57 @@
 namespace App\Http\Controllers;
 
 use App\Models\OptionsMods;
+use App\Support\ActiveInstance;
+use App\Support\LauncherCache;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 class AdminModController extends Controller
 {
     public function index(Request $request)
     {
-        $modsDir = storage_path('app/public/data/mods');
-        $jarFiles = is_dir($modsDir) ? glob($modsDir . '/*.jar') : [];
+        $activeInstance = ActiveInstance::current();
+        $activeInstance->ensureDirectoriesExist();
+
+        $modsDir = $activeInstance->resolvedStoragePath() . DIRECTORY_SEPARATOR . 'mods';
+        $jarFiles = is_dir($modsDir) ? array_merge(
+            glob($modsDir . '/*.jar') ?: [],
+            glob($modsDir . '/*.jar-disable') ?: []
+        ) : [];
+
+        $seenFiles = [];
         $modsData = [];
 
-        foreach ($jarFiles ?: [] as $jarFile) {
+        foreach ($jarFiles as $jarFile) {
+            $baseName = preg_replace('/\.jar-disable$/', '.jar', basename($jarFile));
+            if (isset($seenFiles[$baseName])) {
+                continue;
+            }
+            $seenFiles[$baseName] = true;
+
             $modsData[] = [
-                'file' => basename($jarFile),
-                'name' => basename($jarFile),
+                'file' => $baseName,
+                'name' => $baseName,
                 'description' => '',
                 'icon' => '',
                 'optional' => 0,
             ];
         }
 
-        $optionalMods = OptionsMods::where('optional', true)->orderBy('name')->get();
+        $optionalMods = OptionsMods::query()
+            ->where('optional', true)
+            ->where(function ($q) use ($activeInstance) {
+                $q->where('instance_id', $activeInstance->id);
+                if ($activeInstance->is_default) {
+                    $q->orWhereNull('instance_id');
+                }
+            })
+            ->orderBy('name')
+            ->get();
+
         $selectedModId = $request->input('selectedMod');
 
-        return view('admin.mods', compact('modsData', 'optionalMods', 'selectedModId'));
+        return view('admin.mods', compact('modsData', 'optionalMods', 'selectedModId', 'activeInstance'));
     }
 
     public function updateOptionalMod(Request $request)
@@ -41,7 +66,13 @@ class AdminModController extends Controller
             'optional_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
+        $activeInstance = ActiveInstance::current();
         $mod = OptionsMods::findOrFail($validated['mod_id']);
+
+        if (!$mod->instance_id) {
+            $mod->instance_id = $activeInstance->id;
+        }
+
         $mod->name = $validated['optional_name'];
         $mod->description = $validated['optional_description'] ?? '';
         $mod->recommended = $request->boolean('optional_recommended');
@@ -54,7 +85,7 @@ class AdminModController extends Controller
         }
 
         $mod->save();
-        Cache::forget('launcher_optional_mods');
+        LauncherCache::flush();
 
         return redirect()->back()->with('success', __('messages.flash.mod_updated'));
     }
@@ -67,7 +98,7 @@ class AdminModController extends Controller
                 Storage::disk('public')->delete($mod->icon);
             }
             $mod->delete();
-            Cache::forget('launcher_optional_mods');
+            LauncherCache::flush();
 
             return redirect()->back()->with('success', __('messages.flash.mod_deleted'));
         } catch (\Exception $e) {
@@ -83,8 +114,13 @@ class AdminModController extends Controller
             'description' => 'nullable|string|max:2000',
         ]);
 
+        $activeInstance = ActiveInstance::current();
+
         OptionsMods::updateOrCreate(
-            ['file' => $validated['file']],
+            [
+                'instance_id' => $activeInstance->id,
+                'file' => $validated['file'],
+            ],
             [
                 'name' => $validated['name'],
                 'description' => $validated['description'] ?? '',
@@ -92,7 +128,7 @@ class AdminModController extends Controller
             ]
         );
 
-        Cache::forget('launcher_optional_mods');
+        LauncherCache::flush();
 
         return redirect()->back()->with('success', __('messages.flash.mod_added'));
     }

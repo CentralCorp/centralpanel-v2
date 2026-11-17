@@ -1,10 +1,13 @@
 <?php
 namespace App\Models;
 
+use App\Models\Concerns\FlushesLauncherCache;
 use Illuminate\Database\Eloquent\Model;
 
 class OptionsLoader extends Model
 {
+    use FlushesLauncherCache;
+
     protected $table = 'options_loader';
 
     protected $fillable = [

@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\FlushesLauncherCache;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class OptionsServer extends Model
 {
     use HasFactory;
+    use FlushesLauncherCache;
 
     protected $table = 'options_server';
     protected $fillable = [
@@ -25,18 +28,29 @@ class OptionsServer extends Model
         'is_default' => 'boolean'
     ];
 
+    public function instances(): HasMany
+    {
+        return $this->hasMany(Instance::class, 'server_id');
+    }
+
     /**
      * Retourne l'URL de l'icône (locale prioritaire sur distante)
      */
     public function getIconUrlAttribute(): ?string
     {
+        return $this->iconUrlFor();
+    }
+
+    public function iconUrlFor(?string $baseUrl = null): ?string
+    {
         if ($this->icon_local) {
-            return asset('storage/' . $this->icon_local);
+            $rel = 'storage/' . ltrim($this->icon_local, '/');
+
+            return $baseUrl ? rtrim($baseUrl, '/') . '/' . $rel : asset($rel);
         }
 
         if ($this->icon) {
-            static $azuriomUrl = null;
-            $azuriomUrl ??= OptionsGeneral::value('azuriom_url');
+            $azuriomUrl = OptionsGeneral::value('azuriom_url');
             if ($azuriomUrl) {
                 return rtrim($azuriomUrl, '/') . '/storage/' . ltrim(str_replace('storage/', '', $this->icon), '/');
             }

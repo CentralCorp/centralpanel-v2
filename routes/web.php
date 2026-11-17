@@ -7,8 +7,12 @@ use App\Http\Controllers\AdminBgController;
 use App\Http\Controllers\AdminConfigController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminIgnoreController;
+use App\Http\Controllers\AdminInstanceController;
 use App\Http\Controllers\AdminLoaderController;
 use App\Http\Controllers\AdminModController;
+use App\Http\Controllers\AdminNewsController;
+use App\Http\Controllers\AdminPlayerController;
+use App\Http\Controllers\AdminRoleController;
 use App\Http\Controllers\AdminRpcController;
 use App\Http\Controllers\AdminSecurityController;
 use App\Http\Controllers\AdminServerController;
@@ -16,7 +20,9 @@ use App\Http\Controllers\AdminUIController;
 use App\Http\Controllers\AdminWhitelistController;
 use App\Http\Controllers\api\ApiController;
 use App\Http\Controllers\api\FileController;
+use App\Http\Controllers\api\MicrosoftAuthController;
 use App\Http\Controllers\api\ModController;
+use App\Http\Controllers\api\NewsController;
 use App\Http\Controllers\InstallController;
 use App\Http\Controllers\PanelController;
 use App\Http\Controllers\users\AdminUserController;
@@ -37,6 +43,33 @@ Route::prefix('admin')->middleware('auth')->group(function () {
     Route::get('/config', [AdminConfigController::class, 'show'])->name('admin.config');
     Route::post('/config', [AdminConfigController::class, 'update'])->name('admin.config.update');
 
+    Route::get('/instances', [AdminInstanceController::class, 'index'])->name('admin.instances');
+    Route::get('/instances/create', [AdminInstanceController::class, 'create'])->name('admin.instances.create');
+    Route::post('/instances', [AdminInstanceController::class, 'store'])->name('admin.instances.store');
+    Route::post('/instances/switch', [AdminInstanceController::class, 'switchInstance'])->name('admin.instances.switch');
+    Route::post('/instances/{instance}/default', [AdminInstanceController::class, 'setDefault'])->name('admin.instances.default');
+    Route::get('/instances/{instance}/edit', [AdminInstanceController::class, 'edit'])->name('admin.instances.edit');
+    Route::put('/instances/{instance}', [AdminInstanceController::class, 'update'])->name('admin.instances.update');
+    Route::delete('/instances/{instance}', [AdminInstanceController::class, 'destroy'])->name('admin.instances.destroy');
+
+    Route::get('/roles', [AdminRoleController::class, 'index'])->name('admin.roles');
+    Route::post('/roles', [AdminRoleController::class, 'store'])->name('admin.roles.store');
+    Route::put('/roles/{role}', [AdminRoleController::class, 'update'])->name('admin.roles.update');
+    Route::delete('/roles/{role}', [AdminRoleController::class, 'destroy'])->name('admin.roles.destroy');
+
+    Route::get('/players', [AdminPlayerController::class, 'index'])->name('admin.players');
+    Route::post('/players', [AdminPlayerController::class, 'store'])->name('admin.players.store');
+    Route::put('/players/{player}', [AdminPlayerController::class, 'update'])->name('admin.players.update');
+    Route::post('/players/{player}/ban', [AdminPlayerController::class, 'toggleBan'])->name('admin.players.toggleBan');
+    Route::delete('/players/{player}', [AdminPlayerController::class, 'destroy'])->name('admin.players.destroy');
+
+    Route::get('/news', [AdminNewsController::class, 'index'])->name('admin.news');
+    Route::get('/news/create', [AdminNewsController::class, 'create'])->name('admin.news.create');
+    Route::post('/news', [AdminNewsController::class, 'store'])->name('admin.news.store');
+    Route::get('/news/{news}/edit', [AdminNewsController::class, 'edit'])->name('admin.news.edit');
+    Route::put('/news/{news}', [AdminNewsController::class, 'update'])->name('admin.news.update');
+    Route::delete('/news/{news}', [AdminNewsController::class, 'destroy'])->name('admin.news.destroy');
+
     Route::get('/general', [AdminController::class, 'general'])->name('admin.general');
     Route::post('/general/update', [AdminController::class, 'updateGeneral'])->name('admin.general.update');
 
@@ -44,7 +77,10 @@ Route::prefix('admin')->middleware('auth')->group(function () {
     Route::post('/security/update', [AdminSecurityController::class, 'update'])->name('admin.security.update');
 
     Route::get('/server', [AdminServerController::class, 'show'])->name('admin.server');
+    Route::post('/server/store', [AdminServerController::class, 'store'])->name('admin.server.store');
     Route::post('/server/update', [AdminServerController::class, 'update'])->name('admin.server.update');
+    Route::put('/server/{id}', [AdminServerController::class, 'updateServer'])->name('admin.server.updateServer')->whereNumber('id');
+    Route::delete('/server/{id}', [AdminServerController::class, 'destroy'])->name('admin.server.destroy')->whereNumber('id');
     Route::post('/server/set-default', [AdminServerController::class, 'setDefaultServer'])->name('admin.server.set-default');
     Route::post('/server/sync', [AdminServerController::class, 'sync'])->name('admin.server.sync');
     Route::post('/server/{serverId}/icon', [AdminServerController::class, 'updateIcon'])->name('admin.server.updateIcon');
@@ -102,6 +138,12 @@ Route::get('/file-manager', [PanelController::class, 'fileManager'])->name('admi
 Route::prefix('utils')->group(function () {
     Route::get('/api', [ApiController::class, 'getOptions']);
     Route::get('/mods', [ModController::class, 'getMods']);
+    Route::get('/news', [NewsController::class, 'getNews']);
+    Route::get('/instances', [ApiController::class, 'getInstances']);
+    Route::get('/instances/{slug}', [ApiController::class, 'getInstance']);
+    Route::get('/instances/{slug}/files', [FileController::class, 'getInstanceFiles']);
+    Route::get('/instances/{slug}/mods', [ModController::class, 'getInstanceMods']);
+    Route::post('/auth/microsoft/sync', [MicrosoftAuthController::class, 'sync']);
 });
 
 Route::get('/data', [FileController::class, 'getFiles']);
