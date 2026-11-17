@@ -520,6 +520,7 @@ class MultiInstanceApiTest extends TestCase
     public function test_folder_partitioned_zip_packages_and_delta_updates(): void
     {
         Storage::fake('public');
+        Storage::fake('local');
 
         $survival = Instance::create([
             'slug' => 'survival',
@@ -558,6 +559,14 @@ class MultiInstanceApiTest extends TestCase
             ->assertJsonCount(4, 'packages') // config, mods, mods-optional, root
             ->assertJsonCount(4, 'files');
 
+        // ZIP generation MUST be 100% invisible inside public storage & the instance File Manager folder!
+        $this->assertFalse(Storage::disk('public')->exists('launcher-packages'));
+        $instanceVisibleFiles = Storage::disk('public')->allFiles('instances/survival');
+        foreach ($instanceVisibleFiles as $visFile) {
+            $this->assertStringEndsNotWith('.zip', $visFile);
+        }
+        $this->assertNotEmpty(Storage::disk('local')->allFiles('launcher-packages/instance-survival'));
+
         $packages = collect($pkgResp->json('packages'))->keyBy('folder');
         $this->assertTrue($packages->has('config'));
         $this->assertTrue($packages->has('mods'));
@@ -594,22 +603,6 @@ class MultiInstanceApiTest extends TestCase
         $this->get($configUrlPath)->assertNotFound();
 
         // 4. Verify small-chunk splitting when maxChunkFiles = 2 on a folder with 5 files
-        $smallChunks = \App\Support\InstancePackageBuilder::build(
-            $survival->resolvedStoragePath(),
-            [
-                ['path' => 'kubejs/s1.js', 'size' => 10, 'hash' => sha1('1'), 'url' => 'http://test/1'],
-                ['path' => 'kubejs/s2.js', 'size' => 10, 'hash' => sha1('2'), 'url' => 'http://test/2'],
-                ['path' => 'kubejs/s3.js', 'size' => 10, 'hash' => sha1('3'), 'url' => 'http://test/3'],
-                ['path' => 'kubejs/s4.js', 'size' => 10, 'hash' => sha1('4'), 'url' => 'http://test/4'],
-                ['path' => 'kubejs/s5.js', 'size' => 10, 'hash' => sha1('5'), 'url' => 'http://test/5'],
-            ],
-            Storage::disk('public')->path('launcher-packages/chunk-test'),
-            static fn (string $z): string => 'http://test/' . $z,
-            [],
-            1024,
-            2
-        );
-        // Since files don't exist on disk in chunk-test fake list unless created, create them and verify 3 chunks!
         foreach (range(1, 5) as $n) {
             Storage::disk('public')->put("instances/survival/kubejs/s{$n}.js", (string) $n);
         }
@@ -622,7 +615,7 @@ class MultiInstanceApiTest extends TestCase
                 ['path' => 'kubejs/s4.js', 'size' => 1, 'hash' => sha1('4'), 'url' => 'http://test/4'],
                 ['path' => 'kubejs/s5.js', 'size' => 1, 'hash' => sha1('5'), 'url' => 'http://test/5'],
             ],
-            Storage::disk('public')->path('launcher-packages/chunk-test'),
+            Storage::disk('local')->path('launcher-packages/chunk-test'),
             static fn (string $z): string => 'http://test/' . $z,
             [],
             1024,

@@ -77,10 +77,10 @@ class AdminInstanceController extends Controller
 
         $slug = $validated['slug'];
         $iconPath = $request->hasFile('icon')
-            ? $request->file('icon')->store("instances/{$slug}", 'public')
+            ? $request->file('icon')->store("instance_assets/{$slug}", 'public')
             : null;
         $bgPath = $request->hasFile('background')
-            ? $request->file('background')->store("instances/{$slug}", 'public')
+            ? $request->file('background')->store("instance_assets/{$slug}", 'public')
             : null;
 
         $bypassRoles = $this->mergeStringList(
@@ -195,6 +195,7 @@ class AdminInstanceController extends Controller
             'maintenance_bypass_users_text' => 'nullable|string|max:2000',
         ]);
 
+        $oldSlug = $instance->slug;
         $slug = $validated['slug'];
         $iconPath = $instance->icon_path;
         $bgPath = $instance->background_path;
@@ -207,7 +208,7 @@ class AdminInstanceController extends Controller
             if ($iconPath) {
                 Storage::disk('public')->delete($iconPath);
             }
-            $iconPath = $request->file('icon')->store("instances/{$slug}", 'public');
+            $iconPath = $request->file('icon')->store("instance_assets/{$slug}", 'public');
         }
 
         if ($request->boolean('remove_background') && $bgPath) {
@@ -218,7 +219,7 @@ class AdminInstanceController extends Controller
             if ($bgPath) {
                 Storage::disk('public')->delete($bgPath);
             }
-            $bgPath = $request->file('background')->store("instances/{$slug}", 'public');
+            $bgPath = $request->file('background')->store("instance_assets/{$slug}", 'public');
         }
 
         $bypassRoles = $this->mergeStringList(
@@ -229,7 +230,14 @@ class AdminInstanceController extends Controller
 
         $makeDefault = $request->boolean('is_default') || ($instance->is_default && Instance::count() === 1);
         $customDataDir = $instance->custom_data_dir;
-        if ($customDataDir && $customDataDir !== 'data' && $slug !== $instance->slug) {
+        if ($customDataDir && $customDataDir !== 'data' && $slug !== $oldSlug) {
+            $oldAbs = Storage::disk('public')->path('instances/' . $oldSlug);
+            $newAbs = Storage::disk('public')->path('instances/' . $slug);
+            if (is_dir($oldAbs) && !file_exists($newAbs)) {
+                @rename($oldAbs, $newAbs);
+            }
+            $oldPkgScope = 'instance-' . (preg_replace('/[^a-zA-Z0-9_-]+/', '-', $oldSlug) ?: $instance->id);
+            Storage::disk('local')->deleteDirectory('launcher-packages/' . $oldPkgScope);
             $customDataDir = 'instances/' . $slug;
         }
 
@@ -291,6 +299,7 @@ class AdminInstanceController extends Controller
         $name = $instance->name;
         $wasDefault = $instance->is_default;
         $wasActive = (int) session(ActiveInstance::SESSION_KEY) === (int) $instance->id;
+        $pkgScope = 'instance-' . (preg_replace('/[^a-zA-Z0-9_-]+/', '-', $instance->slug) ?: $instance->id);
 
         if ($instance->icon_path) {
             Storage::disk('public')->delete($instance->icon_path);
@@ -298,6 +307,7 @@ class AdminInstanceController extends Controller
         if ($instance->background_path) {
             Storage::disk('public')->delete($instance->background_path);
         }
+        Storage::disk('local')->deleteDirectory('launcher-packages/' . $pkgScope);
 
         $instance->delete();
 

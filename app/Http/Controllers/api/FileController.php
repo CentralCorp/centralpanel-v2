@@ -72,7 +72,7 @@ class FileController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Invalid package identifier'], 400);
         }
 
-        $pkgDir = Storage::disk('public')->path('launcher-packages/' . $scope);
+        $pkgDir = Storage::disk('local')->path('launcher-packages/' . $scope);
         $realDir = realpath($pkgDir);
         $candidate = $pkgDir . DIRECTORY_SEPARATOR . $filename;
         $realCandidate = realpath($candidate);
@@ -159,7 +159,7 @@ class FileController extends Controller
             $baseUrl = rtrim(url('/'), '/');
         }
         $pkgSig = $signature . ':opt=' . implode('|', $optionalMods) . ':base=' . $baseUrl;
-        $pkgStorageDir = Storage::disk('public')->path('launcher-packages/' . $scope);
+        $pkgStorageDir = Storage::disk('local')->path('launcher-packages/' . $scope);
 
         $packaged = LauncherCache::remember(
             'launcher_packages',
