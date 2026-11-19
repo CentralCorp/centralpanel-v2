@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Models\Concerns\FlushesLauncherCache;
+use App\Support\LauncherCache;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +12,24 @@ use Illuminate\Support\Facades\File;
 class Instance extends Model
 {
     use HasFactory;
-    use FlushesLauncherCache;
+
+    protected static function booted(): void
+    {
+        static::saved(static function (self $instance): void {
+            LauncherCache::flushMetadata();
+
+            if (
+                $instance->wasRecentlyCreated
+                || $instance->wasChanged(['slug', 'custom_data_dir', 'is_default', 'is_enabled'])
+            ) {
+                LauncherCache::flushFiles();
+            }
+        });
+
+        static::deleted(static function (): void {
+            LauncherCache::flush();
+        });
+    }
 
     protected $table = 'instances';
 
@@ -140,12 +157,37 @@ class Instance extends Model
         return $this->background_path ? asset('storage/' . ltrim($this->background_path, '/')) : null;
     }
 
+    public function toLauncherArray(
+        string $baseURL,
+        ?OptionsServer $fallbackServer = null,
+        array $globalWhitelist = [],
+        array $globalWhitelistRoles = [],
+        array $globalIgnored = [],
+        ?string $azuriomUrl = null,
+        bool $azuriomUrlResolved = false,
+        ?array $panelBypassRoles = null
+    ): array {
+        return $this->toLauncherPayload(
+            $baseURL,
+            $fallbackServer,
+            $globalWhitelist,
+            $globalWhitelistRoles,
+            $globalIgnored,
+            $azuriomUrl,
+            $azuriomUrlResolved,
+            $panelBypassRoles
+        );
+    }
+
     public function toLauncherPayload(
         string $baseURL,
         ?OptionsServer $fallbackServer = null,
         array $globalWhitelist = [],
         array $globalWhitelistRoles = [],
-        array $globalIgnored = []
+        array $globalIgnored = [],
+        ?string $azuriomUrl = null,
+        bool $azuriomUrlResolved = false,
+        ?array $panelBypassRoles = null
     ): array {
         $baseURL = rtrim($baseURL, '/');
         $server = $this->relationLoaded('server') ? $this->server : ($this->server_id ? $this->server()->first() : null);
@@ -167,6 +209,13 @@ class Instance extends Model
         $mergedWhitelistRoles = array_values(array_unique(array_merge($globalWhitelistRoles, $instanceWhitelistRoles)));
         $mergedIgnored = array_values(array_unique(array_merge($globalIgnored, $instanceIgnored)));
 
+        $resolvedPanelBypassRoles = $panelBypassRoles
+            ?? PanelRole::where('bypass_maintenance', true)->pluck('name')->all();
+        $mergedBypassRoles = array_values(array_unique(array_merge(
+            array_filter($this->maintenance_bypass_roles ?? []),
+            array_filter($resolvedPanelBypassRoles)
+        )));
+
         $port = $server ? $server->server_port : 25565;
         $portValue = is_numeric($port) ? (int) $port : $port;
 
@@ -181,7 +230,7 @@ class Instance extends Model
             'position' => (int) $this->position,
             'maintenance' => (bool) $this->maintenance,
             'maintenance_message' => $this->maintenance_message,
-            'maintenance_bypass_roles' => array_values(array_filter($this->maintenance_bypass_roles ?? [])),
+            'maintenance_bypass_roles' => $mergedBypassRoles,
             'maintenance_bypass_users' => array_values(array_filter($this->maintenance_bypass_users ?? [])),
             'game_version' => (string) ($this->minecraft_version ?: '1.20.1'),
             'verify' => (bool) $this->file_verification,
@@ -195,10 +244,10 @@ class Instance extends Model
             'ram_max' => ($this->max_ram ?: 4096) / 1024,
             'status' => [
                 'nameServer' => $server ? $server->server_name : $this->name,
-                'ip' => $server ? $server->server_ip : '127.0.0.1',
+                'ip' => $server ? (string) $server->server_ip : '',
                 'port' => $portValue,
             ],
-            'server_icon' => $server ? $server->iconUrlFor($baseURL) : null,
+            'server_icon' => $server ? $server->iconUrlFor($baseURL, $azuriomUrl, $azuriomUrlResolved) : null,
             'loader' => [
                 'type' => $this->loader_type ?: 'forge',
                 'build' => (string) ($this->loader_build_version ?? $this->loader_forge_version ?? ''),

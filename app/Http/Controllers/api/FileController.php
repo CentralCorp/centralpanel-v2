@@ -8,6 +8,7 @@ use App\Models\OptionsIgnore;
 use App\Models\OptionsMods;
 use App\Support\InstancePackageBuilder;
 use App\Support\LauncherCache;
+use App\Support\LauncherResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -15,10 +16,11 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use SplFileInfo;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Response;
 
 class FileController extends Controller
 {
-    public function getFiles(Request $request): JsonResponse
+    public function getFiles(Request $request): Response
     {
         $slug = $request->query('instance');
         if (is_string($slug) && $slug !== '') {
@@ -40,7 +42,7 @@ class FileController extends Controller
         return $this->serveManifest($request, $dir, $urlPrefix, $ignoredFolders, $optionalMods, 'legacy-data');
     }
 
-    public function getInstanceFiles(Request $request, string $slug): JsonResponse
+    public function getInstanceFiles(Request $request, string $slug): Response
     {
         $instance = Instance::where('slug', $slug)->where('is_enabled', true)->first();
 
@@ -54,10 +56,10 @@ class FileController extends Controller
                 return $this->serveManifest($request, $dir, $urlPrefix, $ignoredFolders, $optionalMods, 'default-fallback');
             }
 
-            return response()->json([
+            return LauncherResponse::json($request, [
                 'status' => 'error',
                 'message' => 'Instance not found',
-            ], 404, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            ], 404);
         }
 
         return $this->serveInstanceDirectory($request, $instance);
@@ -69,7 +71,7 @@ class FileController extends Controller
             !preg_match('/^[a-zA-Z0-9_-]+$/', $scope)
             || !preg_match('/^pkg-[a-zA-Z0-9_-]+\.zip$/', $filename)
         ) {
-            return response()->json(['status' => 'error', 'message' => 'Invalid package identifier'], 400);
+            return response()->json(['status' => 'error', 'message' => 'Invalid package identifier'], 400, [], LauncherResponse::JSON_FLAGS);
         }
 
         $pkgDir = Storage::disk('local')->path('launcher-packages/' . $scope);
@@ -83,7 +85,7 @@ class FileController extends Controller
             || !is_file($realCandidate)
             || !str_starts_with($realCandidate, rtrim($realDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR)
         ) {
-            return response()->json(['status' => 'error', 'message' => 'Package not found'], 404);
+            return response()->json(['status' => 'error', 'message' => 'Package not found'], 404, [], LauncherResponse::JSON_FLAGS);
         }
 
         return response()->file($realCandidate, [
@@ -92,7 +94,7 @@ class FileController extends Controller
         ]);
     }
 
-    private function serveInstanceDirectory(Request $request, Instance $instance): JsonResponse
+    private function serveInstanceDirectory(Request $request, Instance $instance): Response
     {
         $dir = $instance->resolvedStoragePath();
         $urlPrefix = $instance->resolvedPublicUrlPrefix();
@@ -132,25 +134,25 @@ class FileController extends Controller
         array $ignoredFolders,
         array $optionalMods,
         string $scope
-    ): JsonResponse {
+    ): Response {
         $wantsPackages = $request->boolean('packages')
             || $request->header('X-Accept-Packages') === '1';
 
         if (!is_dir($dir)) {
             $empty = $wantsPackages ? ['version' => 2, 'packages' => [], 'files' => []] : [];
 
-            return response()->json($empty, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            return LauncherResponse::json($request, $empty);
         }
 
         $filesVersion = LauncherCache::filesVersion();
         $signature = $filesVersion . ':' . $urlPrefix . ':' . $this->buildDirectorySignature($dir, $ignoredFolders);
 
-        $files = LauncherCache::remember('launcher_files', $scope . ':' . sha1($signature), now()->addMinutes(30), function () use ($dir, $urlPrefix, $ignoredFolders) {
+        $files = LauncherCache::rememberFiles('launcher_files', $scope . ':' . sha1($signature), now()->addMinutes(30), function () use ($dir, $urlPrefix, $ignoredFolders) {
             return $this->dirToArray($dir, $urlPrefix, '', $ignoredFolders);
         });
 
         if (!$wantsPackages) {
-            return response()->json($files, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            return LauncherResponse::json($request, $files);
         }
 
         sort($optionalMods);
@@ -161,7 +163,7 @@ class FileController extends Controller
         $pkgSig = $signature . ':opt=' . implode('|', $optionalMods) . ':base=' . $baseUrl;
         $pkgStorageDir = Storage::disk('local')->path('launcher-packages/' . $scope);
 
-        $packaged = LauncherCache::remember(
+        $packaged = LauncherCache::rememberFiles(
             'launcher_packages',
             $scope . ':' . sha1($pkgSig),
             now()->addMinutes(30),
@@ -176,7 +178,7 @@ class FileController extends Controller
             }
         );
 
-        return response()->json($packaged, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        return LauncherResponse::json($request, $packaged);
     }
 
     private function buildDirectorySignature(string $dir, array $ignoredFolders): string

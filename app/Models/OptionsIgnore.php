@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Models\Concerns\FlushesLauncherCache;
+use App\Support\LauncherCache;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +10,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class OptionsIgnore extends Model
 {
     use HasFactory;
-    use FlushesLauncherCache;
+
+    protected static function booted(): void
+    {
+        static::saved(static fn () => LauncherCache::flush());
+        static::deleted(static fn () => LauncherCache::flush());
+    }
 
     protected $table = 'ignored_folders';
     protected $fillable = ['instance_id', 'folder_name'];

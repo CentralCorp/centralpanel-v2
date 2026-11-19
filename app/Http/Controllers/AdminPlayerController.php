@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\MicrosoftPlayer;
 use App\Models\PanelRole;
-use App\Support\LauncherCache;
 use App\Support\PanelOptions;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -62,8 +61,6 @@ class AdminPlayerController extends Controller
             'ban_reason' => $request->boolean('is_banned') ? (($validated['ban_reason'] ?? null) ?: null) : null,
         ]);
 
-        LauncherCache::flush();
-
         return redirect()->route('admin.players')->with('success', __('messages.flash.player_created', ['name' => $player->username]));
     }
 
@@ -93,8 +90,6 @@ class AdminPlayerController extends Controller
             'ban_reason' => $isBanned ? (($validated['ban_reason'] ?? null) ?: null) : null,
         ]);
 
-        LauncherCache::flush();
-
         return redirect()->route('admin.players')->with('success', __('messages.flash.player_updated', ['name' => $player->username]));
     }
 
@@ -110,8 +105,6 @@ class AdminPlayerController extends Controller
             'ban_reason' => $newBanState ? (($validated['ban_reason'] ?? null) ?: $player->ban_reason) : null,
         ]);
 
-        LauncherCache::flush();
-
         $msgKey = $newBanState ? 'messages.flash.player_banned' : 'messages.flash.player_unbanned';
 
         return redirect()->route('admin.players')->with('success', __($msgKey, ['name' => $player->username]));
@@ -121,7 +114,6 @@ class AdminPlayerController extends Controller
     {
         $name = $player->username;
         $player->delete();
-        LauncherCache::flush();
 
         return redirect()->route('admin.players')->with('success', __('messages.flash.player_deleted', ['name' => $name]));
     }

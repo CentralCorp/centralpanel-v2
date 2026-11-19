@@ -45,7 +45,7 @@ class AdminConfigController extends Controller
             Artisan::call('config:clear');
         }
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.config')->with('success', __('messages.flash.config_updated'));
     }

@@ -41,7 +41,7 @@ class OptionsServer extends Model
         return $this->iconUrlFor();
     }
 
-    public function iconUrlFor(?string $baseUrl = null): ?string
+    public function iconUrlFor(?string $baseUrl = null, ?string $azuriomUrl = null, bool $azuriomUrlResolved = false): ?string
     {
         if ($this->icon_local) {
             $rel = 'storage/' . ltrim($this->icon_local, '/');
@@ -50,9 +50,12 @@ class OptionsServer extends Model
         }
 
         if ($this->icon) {
-            $azuriomUrl = OptionsGeneral::value('azuriom_url');
-            if ($azuriomUrl) {
-                return rtrim($azuriomUrl, '/') . '/storage/' . ltrim(str_replace('storage/', '', $this->icon), '/');
+            $resolvedAzuriomUrl = $azuriomUrlResolved
+                ? $azuriomUrl
+                : ($azuriomUrl ?? OptionsGeneral::value('azuriom_url'));
+
+            if ($resolvedAzuriomUrl) {
+                return rtrim($resolvedAzuriomUrl, '/') . '/storage/' . ltrim(str_replace('storage/', '', $this->icon), '/');
             }
         }
 

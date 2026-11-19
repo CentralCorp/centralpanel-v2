@@ -196,6 +196,9 @@ class AdminInstanceController extends Controller
         ]);
 
         $oldSlug = $instance->slug;
+        $oldCustomDataDir = $instance->custom_data_dir;
+        $oldIsDefault = (bool) $instance->is_default;
+        $oldIsEnabled = (bool) $instance->is_enabled;
         $slug = $validated['slug'];
         $iconPath = $instance->icon_path;
         $bgPath = $instance->background_path;
@@ -285,7 +288,16 @@ class AdminInstanceController extends Controller
             $this->syncLegacySingletonsFromDefault($instance);
         }
 
-        LauncherCache::flush();
+        if (
+            $slug !== $oldSlug
+            || $customDataDir !== $oldCustomDataDir
+            || (bool) $instance->is_default !== $oldIsDefault
+            || (bool) $instance->is_enabled !== $oldIsEnabled
+        ) {
+            LauncherCache::flush();
+        } else {
+            LauncherCache::flushMetadata();
+        }
 
         return redirect()->route('admin.instances')->with('success', __('messages.flash.instance_updated', ['name' => $instance->name]));
     }

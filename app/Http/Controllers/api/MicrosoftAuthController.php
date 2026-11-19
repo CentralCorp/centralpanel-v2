@@ -5,6 +5,7 @@ namespace App\Http\Controllers\api;
 use App\Http\Controllers\Controller;
 use App\Models\MicrosoftPlayer;
 use App\Models\OptionsSecurity;
+use App\Support\LauncherResponse;
 use App\Support\PanelOptions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +22,7 @@ class MicrosoftAuthController extends Controller
                 'status' => 'error',
                 'reason' => 'invalid_token',
                 'message' => 'Invalid Minecraft token',
-            ], 401, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            ], 401, [], LauncherResponse::JSON_FLAGS);
         }
 
         try {
@@ -33,7 +34,7 @@ class MicrosoftAuthController extends Controller
                 'status' => 'error',
                 'reason' => 'invalid_token',
                 'message' => 'Invalid Minecraft token',
-            ], 401, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            ], 401, [], LauncherResponse::JSON_FLAGS);
         }
 
         $profile = $response->successful() ? $response->json() : null;
@@ -42,7 +43,7 @@ class MicrosoftAuthController extends Controller
                 'status' => 'error',
                 'reason' => 'invalid_token',
                 'message' => 'Invalid Minecraft token',
-            ], 401, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            ], 401, [], LauncherResponse::JSON_FLAGS);
         }
 
         $uuid = MicrosoftPlayer::normalizeUuid((string) $profile['id']);
@@ -88,6 +89,7 @@ class MicrosoftAuthController extends Controller
             $colliding->update(['username' => $colliding->username . '_' . $suffix]);
         }
 
+        $isNewPlayer = !$player;
         if (!$player) {
             $player = new MicrosoftPlayer([
                 'uuid' => $uuid,
@@ -113,15 +115,22 @@ class MicrosoftAuthController extends Controller
         if ($activeCapeUrl || $request->has('cape_url')) {
             $player->cape_url = $activeCapeUrl ? (string) $activeCapeUrl : null;
         }
-        $player->last_seen_at = now();
-        $player->save();
+
+        $recentlySeen = !$isNewPlayer
+            && $player->last_seen_at !== null
+            && $player->last_seen_at->gt(now()->subMinutes(5));
+
+        if ($isNewPlayer || $player->isDirty() || !$recentlySeen) {
+            $player->last_seen_at = now();
+            $player->save();
+        }
 
         if ($player->is_banned) {
             return response()->json([
                 'status' => 'error',
                 'reason' => 'user_banned',
                 'message' => $player->ban_reason ?: 'Account banned',
-            ], 403, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            ], 403, [], LauncherResponse::JSON_FLAGS);
         }
 
         $role = $player->role()->first() ?? $defaultRole;
@@ -135,9 +144,9 @@ class MicrosoftAuthController extends Controller
             || in_array(strtolower($player->username), $globalBypassUsers, true)
             || ($player->uuid && in_array(strtolower($player->uuid), $globalBypassUsers, true));
 
-        $domain = request()->getHost();
-        $protocol = request()->isSecure() ? 'https' : 'http';
-        $port = request()->getPort();
+        $domain = $request->getHost();
+        $protocol = $request->isSecure() ? 'https' : 'http';
+        $port = $request->getPort();
         $baseURL = $protocol . '://' . $domain . (($port && !in_array($port, [80, 443], true)) ? ":$port" : '');
 
         return response()->json([
@@ -157,6 +166,6 @@ class MicrosoftAuthController extends Controller
                     ? ($baseURL . '/storage/' . ltrim($role->background_path, '/'))
                     : null,
             ],
-        ], 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        ], 200, [], LauncherResponse::JSON_FLAGS);
     }
 }

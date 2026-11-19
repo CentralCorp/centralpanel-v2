@@ -66,7 +66,7 @@ class AdminLoaderController extends Controller
             ]);
         }
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->back()->with('success', __('messages.flash.loader_updated'));
     }

@@ -5,25 +5,39 @@ namespace App\Http\Controllers\api;
 use App\Http\Controllers\Controller;
 use App\Models\News;
 use App\Support\LauncherCache;
-use Illuminate\Http\JsonResponse;
+use App\Support\LauncherResponse;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class NewsController extends Controller
 {
-    public function getNews(): JsonResponse
+    public function index(Request $request): Response
     {
-        $domain = request()->getHost();
-        $protocol = request()->isSecure() ? 'https' : 'http';
-        $port = request()->getPort();
+        return $this->getNews($request);
+    }
+
+    public function getNews(Request $request): Response
+    {
+        $domain = $request->getHost();
+        $protocol = $request->isSecure() ? 'https' : 'http';
+        $port = $request->getPort();
         $baseURL = $protocol . '://' . $domain . (($port && !in_array($port, [80, 443], true)) ? ":$port" : '');
 
-        $items = LauncherCache::remember('launcher_news', sha1($baseURL), now()->addMinutes(5), function () use ($baseURL) {
+        return LauncherResponse::json($request, self::getCachedPublishedNews($baseURL));
+    }
+
+    public static function getCachedPublishedNews(string $baseURL): array
+    {
+        $baseURL = rtrim($baseURL, '/');
+
+        return LauncherCache::remember('launcher_news', sha1($baseURL), now()->addMinutes(30), static function () use ($baseURL): array {
             return News::query()
                 ->where('is_published', true)
                 ->orderByDesc('is_pinned')
                 ->orderByDesc('published_at')
                 ->orderByDesc('id')
                 ->get()
-                ->map(function (News $article) use ($baseURL) {
+                ->map(static function (News $article) use ($baseURL): array {
                     $image = null;
                     if ($article->image_path) {
                         $image = $baseURL . '/storage/' . ltrim($article->image_path, '/');
@@ -46,7 +60,5 @@ class NewsController extends Controller
                 ->values()
                 ->all();
         });
-
-        return response()->json($items, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
 }

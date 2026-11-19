@@ -68,7 +68,7 @@ class AdminNewsController extends Controller
             'published_at' => $publishedAt,
         ]);
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.news')->with('success', __('messages.flash.news_created', ['title' => $article->title]));
     }
@@ -133,7 +133,7 @@ class AdminNewsController extends Controller
             'published_at' => $publishedAt,
         ]);
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.news')->with('success', __('messages.flash.news_updated', ['title' => $news->title]));
     }
@@ -145,7 +145,7 @@ class AdminNewsController extends Controller
             Storage::disk('public')->delete($news->image_path);
         }
         $news->delete();
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.news')->with('success', __('messages.flash.news_deleted', ['title' => $title]));
     }

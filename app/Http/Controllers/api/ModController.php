@@ -6,19 +6,20 @@ use App\Http\Controllers\Controller;
 use App\Models\Instance;
 use App\Models\OptionsMods;
 use App\Support\LauncherCache;
-use Illuminate\Http\JsonResponse;
+use App\Support\LauncherResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class ModController extends Controller
 {
-    public function getMods(Request $request): JsonResponse
+    public function getMods(Request $request): Response
     {
         $slug = $request->query('instance');
         if (is_string($slug) && $slug !== '') {
-            return $this->getInstanceMods($slug);
+            return $this->getInstanceMods($request, $slug);
         }
 
-        $output = LauncherCache::remember('launcher_optional_mods', 'default_legacy', now()->addMinutes(5), function () {
+        $output = LauncherCache::remember('launcher_optional_mods', 'default_legacy', now()->addMinutes(30), function () {
             $defaultInstance = Instance::where('is_default', true)->first()
                 ?? Instance::orderBy('position')->orderBy('id')->first();
 
@@ -32,34 +33,34 @@ class ModController extends Controller
                 $query->whereNull('instance_id');
             }
 
-            return $this->formatModsPayload($query->get(), false);
+            return self::formatModsPayload($query->get(), false);
         });
 
-        return response()->json($output, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        return LauncherResponse::json($request, $output);
     }
 
-    public function getInstanceMods(string $slug): JsonResponse
+    public function getInstanceMods(Request $request, string $slug): Response
     {
         $instance = Instance::where('slug', $slug)->where('is_enabled', true)->first();
 
         if (!$instance) {
             if ($slug === 'default' && Instance::count() === 0) {
-                $output = LauncherCache::remember('launcher_optional_mods', 'instance:default_fallback', now()->addMinutes(5), function () {
+                $output = LauncherCache::remember('launcher_optional_mods', 'instance:default_fallback', now()->addMinutes(30), function () {
                     $mods = OptionsMods::query()->whereNull('instance_id')->orderBy('name')->get();
 
-                    return $this->formatModsPayload($mods, true);
+                    return self::formatModsPayload($mods, true);
                 });
 
-                return response()->json($output, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                return LauncherResponse::json($request, $output);
             }
 
-            return response()->json([
+            return LauncherResponse::json($request, [
                 'status' => 'error',
                 'message' => 'Instance not found',
-            ], 404, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            ], 404);
         }
 
-        $output = LauncherCache::remember('launcher_optional_mods', 'instance:' . $instance->slug, now()->addMinutes(5), function () use ($instance) {
+        $output = LauncherCache::remember('launcher_optional_mods', 'instance:' . $instance->slug, now()->addMinutes(30), function () use ($instance) {
             $query = OptionsMods::query()->orderBy('name');
             if ($instance->is_default) {
                 $query->where(function ($q) use ($instance) {
@@ -70,23 +71,69 @@ class ModController extends Controller
                 $query->where('instance_id', $instance->id);
             }
 
-            return $this->formatModsPayload($query->get(), true);
+            return self::formatModsPayload($query->get(), true);
         });
 
-        return response()->json($output, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        return LauncherResponse::json($request, $output);
     }
 
-    private function formatModsPayload($mods, bool $includeRecommendedAlias): array
+    public static function getCachedModsByInstance(string $baseURL): array
+    {
+        $baseURL = rtrim($baseURL, '/');
+
+        return LauncherCache::remember('launcher_mods_by_instance', sha1($baseURL), now()->addMinutes(30), static function () use ($baseURL): array {
+            $instances = Instance::where('is_enabled', true)
+                ->orderBy('position')
+                ->orderBy('id')
+                ->get(['id', 'slug', 'is_default']);
+
+            $allOptionalMods = OptionsMods::query()
+                ->where('optional', true)
+                ->orderBy('name')
+                ->get();
+
+            if ($instances->isEmpty()) {
+                $legacyMods = $allOptionalMods->filter(static fn (OptionsMods $mod): bool => $mod->instance_id === null);
+
+                return [
+                    'default' => self::formatModsPayload($legacyMods, true, $baseURL),
+                ];
+            }
+
+            $result = [];
+            foreach ($instances as $instance) {
+                $scopedMods = $allOptionalMods->filter(static function (OptionsMods $mod) use ($instance): bool {
+                    if ($instance->is_default) {
+                        return $mod->instance_id === (int) $instance->id || $mod->instance_id === null;
+                    }
+
+                    return $mod->instance_id === (int) $instance->id;
+                });
+
+                $result[(string) $instance->slug] = self::formatModsPayload($scopedMods, true, $baseURL);
+            }
+
+            return $result;
+        });
+    }
+
+    public static function formatModsPayload($mods, bool $includeRecommendedAlias, ?string $baseURL = null): array
     {
         $modsData = [];
         $optionalMods = [];
 
         foreach ($mods as $mod) {
             $modsFile = basename($mod->file);
+            $iconUrl = '';
+            if ($mod->icon) {
+                $rel = 'storage/' . ltrim($mod->icon, '/');
+                $iconUrl = $baseURL ? (rtrim($baseURL, '/') . '/' . $rel) : asset($rel);
+            }
+
             $entry = [
                 'name' => $mod->name,
                 'description' => $mod->description,
-                'icon' => $mod->icon ? asset('storage/' . $mod->icon) : '',
+                'icon' => $iconUrl,
                 'recommanded' => (bool) $mod->recommended,
             ];
 

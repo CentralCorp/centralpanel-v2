@@ -9,11 +9,11 @@ trait FlushesLauncherCache
     public static function bootFlushesLauncherCache(): void
     {
         static::saved(function (): void {
-            LauncherCache::flush();
+            LauncherCache::flushMetadata();
         });
 
         static::deleted(function (): void {
-            LauncherCache::flush();
+            LauncherCache::flushMetadata();
         });
     }
 }

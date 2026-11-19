@@ -22,32 +22,52 @@
             <div class="panel-muted-surface p-3 mb-4">
                 <h2 class="panel-section-title"><i class="bi bi-info-circle"></i>{{ __('messages.rpc.general_info') }}</h2>
 
+                <div class="alert alert-info py-2 px-3 small mb-3">
+                    <i class="bi bi-code-slash me-1"></i>{{ __('messages.rpc.placeholders_help') }}
+                </div>
+
                 <div class="mb-3">
                     <label for="rpc_id" class="form-label">{{ __('messages.rpc.client_id') }}</label>
                     <input type="text" class="form-control" id="rpc_id" name="rpc_id"
-                           value="{{ old('rpc_id', optional($rpcOptions)->rpc_id) }}" required>
+                           value="{{ old('rpc_id', optional($rpcOptions)->rpc_id) }}">
                 </div>
 
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label for="rpc_details" class="form-label">{{ __('messages.rpc.details') }}</label>
                         <input type="text" class="form-control" id="rpc_details" name="rpc_details"
-                               value="{{ old('rpc_details', optional($rpcOptions)->rpc_details) }}" required>
+                               placeholder="Ex: {instance} ({version})"
+                               value="{{ old('rpc_details', optional($rpcOptions)->rpc_details) }}">
                     </div>
                     <div class="col-md-6">
                         <label for="rpc_state" class="form-label">{{ __('messages.rpc.state') }}</label>
                         <input type="text" class="form-control" id="rpc_state" name="rpc_state"
-                               value="{{ old('rpc_state', optional($rpcOptions)->rpc_state) }}" required>
+                               placeholder="Ex: {player} - {server}"
+                               value="{{ old('rpc_state', optional($rpcOptions)->rpc_state) }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="rpc_large_image" class="form-label">{{ __('messages.rpc.large_image_key') }}</label>
+                        <input type="text" class="form-control" id="rpc_large_image" name="rpc_large_image"
+                               placeholder="large"
+                               value="{{ old('rpc_large_image', optional($rpcOptions)->rpc_large_image ?? 'large') }}">
+                        <div class="form-text">{{ __('messages.rpc.image_key_help') }}</div>
                     </div>
                     <div class="col-md-6">
                         <label for="rpc_large_text" class="form-label">{{ __('messages.rpc.large_image_text') }}</label>
                         <input type="text" class="form-control" id="rpc_large_text" name="rpc_large_text"
-                               value="{{ old('rpc_large_text', optional($rpcOptions)->rpc_large_text) }}" required>
+                               value="{{ old('rpc_large_text', optional($rpcOptions)->rpc_large_text) }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="rpc_small_image" class="form-label">{{ __('messages.rpc.small_image_key') }}</label>
+                        <input type="text" class="form-control" id="rpc_small_image" name="rpc_small_image"
+                               placeholder="small"
+                               value="{{ old('rpc_small_image', optional($rpcOptions)->rpc_small_image ?? 'small') }}">
+                        <div class="form-text">{{ __('messages.rpc.image_key_help') }}</div>
                     </div>
                     <div class="col-md-6">
                         <label for="rpc_small_text" class="form-label">{{ __('messages.rpc.small_image_text') }}</label>
                         <input type="text" class="form-control" id="rpc_small_text" name="rpc_small_text"
-                               value="{{ old('rpc_small_text', optional($rpcOptions)->rpc_small_text) }}" required>
+                               value="{{ old('rpc_small_text', optional($rpcOptions)->rpc_small_text) }}">
                     </div>
                 </div>
             </div>

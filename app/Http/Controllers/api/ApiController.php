@@ -16,15 +16,18 @@ use App\Models\OptionsWhitelist;
 use App\Models\OptionsWhitelistRole;
 use App\Models\PanelRole;
 use App\Support\LauncherCache;
-use Illuminate\Http\JsonResponse;
+use App\Support\LauncherResponse;
+use App\Support\YouTubeUrl;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 class ApiController extends Controller
 {
-    public function getOptions(): JsonResponse
+    public function getOptions(Request $request): Response
     {
-        $baseURL = $this->resolveBaseUrl();
+        $baseURL = $this->resolveBaseUrl($request);
 
-        $data = LauncherCache::remember('launcher_options', sha1($baseURL), now()->addMinute(), function () use ($baseURL) {
+        $data = LauncherCache::remember('launcher_options', sha1($baseURL), now()->addMinutes(30), function () use ($baseURL) {
             $general = OptionsGeneral::first();
             $security = OptionsSecurity::first();
             $ui = OptionsUI::first();
@@ -32,6 +35,9 @@ class ApiController extends Controller
             $loader = OptionsLoader::first();
             $defaultServer = OptionsServer::where('is_default', true)->first()
                 ?? OptionsServer::first();
+
+            $azuriomUrl = $general?->azuriom_url;
+            $panelBypassRoles = PanelRole::where('bypass_maintenance', true)->pluck('name')->all();
 
             $globalIgnored = OptionsIgnore::whereNull('instance_id')->pluck('folder_name')->filter()->values()->all();
             $globalWhitelist = OptionsWhitelist::whereNull('instance_id')->pluck('users')->filter()->values()->all();
@@ -52,7 +58,10 @@ class ApiController extends Controller
                         $defaultServer,
                         $globalWhitelist,
                         $globalWhitelistRoles,
-                        $globalIgnored
+                        $globalIgnored,
+                        $azuriomUrl,
+                        true,
+                        $panelBypassRoles
                     )
                 )->values()->all();
 
@@ -66,7 +75,9 @@ class ApiController extends Controller
                     $defaultServer,
                     $globalWhitelist,
                     $globalWhitelistRoles,
-                    $globalIgnored
+                    $globalIgnored,
+                    $azuriomUrl,
+                    $panelBypassRoles
                 );
                 $instancePayloads = [$defaultPayload];
             }
@@ -86,11 +97,12 @@ class ApiController extends Controller
 
             $bypassRoles = array_values(array_unique(array_merge(
                 array_filter($security?->maintenance_bypass_roles ?? []),
-                PanelRole::where('bypass_maintenance', true)->pluck('name')->all()
+                $panelBypassRoles
             )));
             $bypassUsers = array_values(array_filter($security?->maintenance_bypass_users ?? []));
 
             return [
+                'skin_api' => true,
                 'auth_mode' => $authMode,
                 'azuriom_auth' => $azuriomAuth,
                 'microsoft_auth' => $microsoftAuth,
@@ -117,17 +129,17 @@ class ApiController extends Controller
                 'auto_connect' => $defaultPayload['auto_connect'],
                 'money' => $general ? (bool) $general->money_display : true,
                 'role' => $general ? (bool) $general->role_display : true,
-                'splash' => $ui ? $ui->splash : 'Ceci est du code',
-                'splash_author' => $ui ? $ui->splash_author : 'Riptiaz',
+                'splash' => $ui ? ($ui->splash ?? '') : 'Ceci est du code',
+                'splash_author' => $ui ? ($ui->splash_author ?? '') : 'Riptiaz',
                 'accent_color' => $ui ? $ui->accent_color : '#FFA500',
                 'azauth' => $general ? $general->azuriom_url : null,
                 'rpc_activation' => $rpc ? (bool) $rpc->rpc_activation : true,
                 'rpc_id' => $rpc ? $rpc->rpc_id : '114425717056158109',
                 'rpc_details' => $rpc ? $rpc->rpc_details : 'Dans le launcher',
                 'rpc_state' => $rpc ? $rpc->rpc_state : 'En exploration',
-                'rpc_large_image' => 'small',
+                'rpc_large_image' => $rpc ? $rpc->rpc_large_image : 'large',
                 'rpc_large_text' => $rpc ? $rpc->rpc_large_text : 'Minecraft',
-                'rpc_small_image' => 'large',
+                'rpc_small_image' => $rpc ? $rpc->rpc_small_image : 'small',
                 'rpc_small_text' => $rpc ? $rpc->rpc_small_text : 'Multiplayer server',
                 'rpc_button1' => $rpc ? $rpc->rpc_button1 : 'Discord',
                 'rpc_button1_url' => $rpc ? $rpc->rpc_button1_url : 'https://discord.gg/VCmNXHvf77',
@@ -136,10 +148,10 @@ class ApiController extends Controller
                 'whitelist_activate' => $defaultPayload['whitelist_activate'],
                 'alert_activate' => $ui ? (bool) $ui->alert_activation : true,
                 'alert_scroll' => $ui ? (bool) $ui->alert_scroll : true,
-                'alert_msg' => $ui ? $ui->alert_msg : 'Test',
+                'alert_msg' => $ui ? ($ui->alert_msg ?? '') : 'Test',
                 'video_activate' => $ui ? (bool) $ui->video_activation : true,
-                'video_url' => $ui ? $this->extractYouTubeVideoId($ui->video_url) : 'a336KPLjsZU',
-                'video_type' => $ui ? $this->detectVideoType($ui->video_url) : 'short',
+                'video_url' => $ui ? (YouTubeUrl::extractVideoId($ui->video_url) ?? '') : 'a336KPLjsZU',
+                'video_type' => $ui ? YouTubeUrl::detectType($ui->video_url) : 'short',
                 'email_verified' => $general ? (bool) $general->email_verified : false,
                 'server_icon' => $defaultPayload['server_icon'],
                 'role_data' => (object) $roleData,
@@ -150,41 +162,60 @@ class ApiController extends Controller
             ];
         });
 
-        return response()->json($data, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $includeRaw = (string) $request->query('include', '');
+        if ($includeRaw !== '') {
+            $includes = array_values(array_unique(array_filter(
+                array_map(static fn (string $token): string => strtolower(trim($token)), explode(',', $includeRaw))
+            )));
+
+            if (in_array('mods', $includes, true)) {
+                $data['mods_by_instance'] = (object) ModController::getCachedModsByInstance($baseURL);
+            }
+
+            if (in_array('news', $includes, true) && in_array($data['news_source'] ?? 'azuriom', ['panel', 'both'], true)) {
+                $data['included_news'] = NewsController::getCachedPublishedNews($baseURL);
+            }
+        }
+
+        return LauncherResponse::json($request, $data);
     }
 
-    public function getInstances(): JsonResponse
+    public function getInstances(Request $request): Response
     {
-        $baseURL = $this->resolveBaseUrl();
+        $baseURL = $this->resolveBaseUrl($request);
 
-        $payloads = LauncherCache::remember('launcher_instances', sha1($baseURL), now()->addMinute(), function () use ($baseURL) {
+        $payloads = LauncherCache::remember('launcher_instances', sha1($baseURL), now()->addMinutes(30), function () use ($baseURL) {
             return $this->computeInstancePayloads($baseURL);
         });
 
-        return response()->json($payloads, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        return LauncherResponse::json($request, $payloads);
     }
 
-    public function getInstance(string $slug): JsonResponse
+    public function getInstance(Request $request, string $slug): Response
     {
-        $baseURL = $this->resolveBaseUrl();
+        $baseURL = $this->resolveBaseUrl($request);
 
-        $payloads = LauncherCache::remember('launcher_instances', sha1($baseURL), now()->addMinute(), function () use ($baseURL) {
+        $payloads = LauncherCache::remember('launcher_instances', sha1($baseURL), now()->addMinutes(30), function () use ($baseURL) {
             return $this->computeInstancePayloads($baseURL);
         });
 
         $found = collect($payloads)->firstWhere('slug', $slug);
         if (!$found) {
-            return response()->json([
+            return LauncherResponse::json($request, [
                 'status' => 'error',
                 'message' => 'Instance not found',
-            ], 404, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            ], 404);
         }
 
-        return response()->json($found, 200, [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        return LauncherResponse::json($request, $found);
     }
 
     private function computeInstancePayloads(string $baseURL): array
     {
+        $general = OptionsGeneral::first();
+        $azuriomUrl = $general?->azuriom_url;
+        $panelBypassRoles = PanelRole::where('bypass_maintenance', true)->pluck('name')->all();
+
         $defaultServer = OptionsServer::where('is_default', true)->first()
             ?? OptionsServer::first();
         $globalIgnored = OptionsIgnore::whereNull('instance_id')->pluck('folder_name')->filter()->values()->all();
@@ -204,7 +235,10 @@ class ApiController extends Controller
                     $defaultServer,
                     $globalWhitelist,
                     $globalWhitelistRoles,
-                    $globalIgnored
+                    $globalIgnored,
+                    $azuriomUrl,
+                    true,
+                    $panelBypassRoles
                 )
             )->values()->all();
         }
@@ -212,13 +246,15 @@ class ApiController extends Controller
         return [
             $this->buildLegacyFallbackInstancePayload(
                 $baseURL,
-                OptionsGeneral::first(),
+                $general,
                 OptionsLoader::first(),
                 OptionsSecurity::first(),
                 $defaultServer,
                 $globalWhitelist,
                 $globalWhitelistRoles,
-                $globalIgnored
+                $globalIgnored,
+                $azuriomUrl,
+                $panelBypassRoles
             ),
         ];
     }
@@ -255,10 +291,17 @@ class ApiController extends Controller
         ?OptionsServer $server,
         array $whitelist,
         array $whitelistRoles,
-        array $ignored
+        array $ignored,
+        ?string $azuriomUrl = null,
+        array $panelBypassRoles = []
     ): array {
         $port = $server ? $server->server_port : 25566;
         $portValue = is_numeric($port) ? (int) $port : $port;
+
+        $bypassRoles = array_values(array_unique(array_merge(
+            array_filter($security?->maintenance_bypass_roles ?? []),
+            array_filter($panelBypassRoles)
+        )));
 
         return [
             'id' => 1,
@@ -271,7 +314,7 @@ class ApiController extends Controller
             'position' => 0,
             'maintenance' => $security ? (bool) $security->maintenance : false,
             'maintenance_message' => $security ? $security->maintenance_message : null,
-            'maintenance_bypass_roles' => array_values(array_filter($security?->maintenance_bypass_roles ?? [])),
+            'maintenance_bypass_roles' => $bypassRoles,
             'maintenance_bypass_users' => array_values(array_filter($security?->maintenance_bypass_users ?? [])),
             'game_version' => $loader ? ($loader->minecraft_version ?: '1.7.10') : '1.7.10',
             'verify' => $general ? (bool) $general->file_verification : true,
@@ -285,10 +328,10 @@ class ApiController extends Controller
             'ram_max' => $general ? ($general->max_ram / 1024) : 4,
             'status' => [
                 'nameServer' => $server ? $server->server_name : 'Syphera',
-                'ip' => $server ? $server->server_ip : '84.235.238.100',
+                'ip' => $server ? (string) $server->server_ip : '',
                 'port' => $portValue,
             ],
-            'server_icon' => $server ? $server->iconUrlFor($baseURL) : null,
+            'server_icon' => $server ? $server->iconUrlFor($baseURL, $azuriomUrl, true) : null,
             'loader' => [
                 'type' => $loader ? ($loader->loader_type ?: 'forge') : 'forge',
                 'build' => $loader ? (string) ($loader->loader_build_version ?? '1.7.10-10.13.4.1614-1.7.10') : '1.7.10-10.13.4.1614-1.7.10',
@@ -303,40 +346,12 @@ class ApiController extends Controller
         ];
     }
 
-    private function resolveBaseUrl(): string
+    private function resolveBaseUrl(Request $request): string
     {
-        $domain = request()->getHost();
-        $protocol = request()->isSecure() ? 'https' : 'http';
-        $port = request()->getPort();
+        $domain = $request->getHost();
+        $protocol = $request->isSecure() ? 'https' : 'http';
+        $port = $request->getPort();
 
         return $protocol . '://' . $domain . (($port && !in_array($port, [80, 443], true)) ? ":$port" : '');
-    }
-
-    private function extractYouTubeVideoId(?string $url): string
-    {
-        if (!$url) {
-            return '';
-        }
-
-        if (str_contains($url, 'youtube.com/shorts/')) {
-            preg_match('/youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/', $url, $matches);
-
-            return $matches[1] ?? '';
-        }
-
-        if (str_contains($url, 'youtu.be/')) {
-            preg_match('/youtu\.be\/([a-zA-Z0-9_-]{11})/', $url, $matches);
-
-            return $matches[1] ?? '';
-        }
-
-        preg_match('/(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.*v=|v=)?([a-zA-Z0-9_-]{11})/', $url, $matches);
-
-        return $matches[1] ?? '';
-    }
-
-    private function detectVideoType(?string $url): string
-    {
-        return $url && str_contains($url, 'youtube.com/shorts/') ? 'short' : 'video';
     }
 }

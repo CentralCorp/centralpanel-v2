@@ -35,7 +35,7 @@ class AdminController extends Controller
             'max_ram' => (int) $validated['max_ram'],
         ]);
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.general')->with('success', __('messages.flash.options_updated'));
     }

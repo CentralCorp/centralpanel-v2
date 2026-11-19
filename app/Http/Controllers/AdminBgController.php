@@ -65,7 +65,7 @@ class AdminBgController extends Controller
 
             $path = $request->file('bg_image')->store('backgrounds', 'public');
             $panelRole->update(['background_path' => $path]);
-            LauncherCache::flush();
+            LauncherCache::flushMetadata();
 
             return back()->with('success', __('messages.flash.bg_updated'));
         }
@@ -100,7 +100,7 @@ class AdminBgController extends Controller
             ]
         );
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return back()->with('success', __('messages.flash.bg_updated'));
     }
@@ -114,7 +114,7 @@ class AdminBgController extends Controller
             if ($panelRole && $panelRole->background_path) {
                 Storage::disk('public')->delete($panelRole->background_path);
                 $panelRole->update(['background_path' => null]);
-                LauncherCache::flush();
+                LauncherCache::flushMetadata();
 
                 return back()->with('success', __('messages.flash.bg_deleted'));
             }
@@ -127,7 +127,7 @@ class AdminBgController extends Controller
         if ($background) {
             Storage::disk('public')->delete($background->image_path);
             $background->delete();
-            LauncherCache::flush();
+            LauncherCache::flushMetadata();
 
             return back()->with('success', __('messages.flash.bg_deleted'));
         }

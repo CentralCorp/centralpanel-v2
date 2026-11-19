@@ -51,7 +51,7 @@ class AdminRoleController extends Controller
         });
 
         PanelOptions::ensureRoles();
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.roles')->with('success', __('messages.flash.role_created', ['name' => $role->name]));
     }
@@ -83,7 +83,7 @@ class AdminRoleController extends Controller
         });
 
         PanelOptions::ensureRoles();
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.roles')->with('success', __('messages.flash.role_updated', ['name' => $role->name]));
     }
@@ -103,7 +103,7 @@ class AdminRoleController extends Controller
         $defaultRole = PanelOptions::ensureRoles();
 
         MicrosoftPlayer::whereNull('role_id')->update(['role_id' => $defaultRole->id]);
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.roles')->with('success', __('messages.flash.role_deleted', ['name' => $name]));
     }

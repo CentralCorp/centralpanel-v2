@@ -24,63 +24,67 @@ final class LauncherCache
     }
 
     /**
-     * Build a versioned launcher cache key and register it so flush() can evict it explicitly.
+     * Build a versioned metadata launcher cache key without touching any shared registry.
      */
     public static function key(string $prefix, string $suffix = ''): string
     {
         $version = self::version();
-        $key = $suffix !== ''
+
+        return $suffix !== ''
             ? "{$prefix}:v{$version}:{$suffix}"
             : "{$prefix}:v{$version}";
+    }
 
-        self::registerKey($key);
+    /**
+     * Build a versioned files/packages launcher cache key isolated from metadata changes.
+     */
+    public static function fileKey(string $prefix, string $suffix = ''): string
+    {
+        $version = self::filesVersion();
 
-        return $key;
+        return $suffix !== ''
+            ? "{$prefix}:fv{$version}:{$suffix}"
+            : "{$prefix}:fv{$version}";
     }
 
     public static function remember(string $prefix, string $suffix, DateTimeInterface|DateInterval|int|null $ttl, Closure $callback): mixed
     {
-        $key = self::key($prefix, $suffix);
-
-        return Cache::remember($key, $ttl, $callback);
+        return Cache::remember(self::key($prefix, $suffix), $ttl, $callback);
     }
 
-    public static function registerKey(string $key): void
+    public static function rememberFiles(string $prefix, string $suffix, DateTimeInterface|DateInterval|int|null $ttl, Closure $callback): mixed
     {
-        $registry = Cache::get(self::REGISTRY_KEY, []);
-        if (!is_array($registry)) {
-            $registry = [];
-        }
-
-        if (!in_array($key, $registry, true)) {
-            $registry[] = $key;
-            // Cap registry size to prevent unbounded growth
-            if (count($registry) > 500) {
-                $registry = array_slice($registry, -500);
-            }
-            Cache::forever(self::REGISTRY_KEY, $registry);
-        }
+        return Cache::remember(self::fileKey($prefix, $suffix), $ttl, $callback);
     }
 
     /**
-     * Flush all launcher API caches (options, instances, optional mods, files, news).
+     * Flush metadata caches only (options, instances, news, optional mods) without invalidating file manifests/packages.
      */
-    public static function flush(): void
+    public static function flushMetadata(): void
     {
-        $registry = Cache::get(self::REGISTRY_KEY, []);
-        if (is_array($registry)) {
-            foreach ($registry as $key) {
-                Cache::forget($key);
-            }
-        }
-
-        // Also forget legacy unversioned keys
         Cache::forget('launcher_optional_mods');
         Cache::forget('launcher_news');
         Cache::forget('launcher_instances');
-        Cache::forget(self::REGISTRY_KEY);
 
         Cache::forever(self::VERSION_KEY, self::version() + 1);
+    }
+
+    /**
+     * Flush file manifest and ZIP package caches only without invalidating metadata caches.
+     */
+    public static function flushFiles(): void
+    {
         Cache::forever(self::FILES_VERSION_KEY, self::filesVersion() + 1);
+    }
+
+    /**
+     * Flush all launcher API caches (both metadata and files).
+     */
+    public static function flush(): void
+    {
+        Cache::forget(self::REGISTRY_KEY);
+
+        self::flushMetadata();
+        self::flushFiles();
     }
 }

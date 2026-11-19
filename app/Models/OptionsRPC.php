@@ -17,12 +17,19 @@ class OptionsRPC extends Model
         'rpc_id',
         'rpc_details',
         'rpc_state',
+        'rpc_large_image',
         'rpc_large_text',
+        'rpc_small_image',
         'rpc_small_text',
         'rpc_button1',
         'rpc_button1_url',
         'rpc_button2',
-        'rpc_button2_url'
+        'rpc_button2_url',
+    ];
+
+    protected $attributes = [
+        'rpc_large_image' => 'large',
+        'rpc_small_image' => 'small',
     ];
 
     protected $casts = [

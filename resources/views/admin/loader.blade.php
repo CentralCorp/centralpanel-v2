@@ -31,10 +31,11 @@
 
                 <div class="col-md-6">
                     <label for="loader-type" class="form-label">{{ __('messages.loader.loader_type') }}</label>
+                    @php($selectedLoaderType = strtolower((string) old('loader_type', $row->loader_type ?? '')))
                     <select class="form-select" id="loader-type" name="loader_type">
-                        @foreach (['forge', 'fabric', 'legacyfabric', 'neoForge', 'quilt'] as $type)
-                            <option value="{{ $type }}" {{ old('loader_type', $row->loader_type ?? '') === $type ? 'selected' : '' }}>
-                                {{ ucfirst($type) }}
+                        @foreach (['forge' => 'Forge', 'fabric' => 'Fabric', 'legacyfabric' => 'LegacyFabric', 'neoForge' => 'NeoForge', 'quilt' => 'Quilt'] as $type => $label)
+                            <option value="{{ $type }}" {{ $selectedLoaderType === strtolower($type) ? 'selected' : '' }}>
+                                {{ $label }}
                             </option>
                         @endforeach
                     </select>

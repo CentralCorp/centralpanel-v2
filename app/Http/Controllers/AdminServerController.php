@@ -29,8 +29,9 @@ class AdminServerController extends Controller
         $servers = OptionsServer::query()->orderByDesc('is_default')->orderBy('server_name')->get();
         $hasAzuriomApi = $this->azuriomApi !== null;
 
+        $azuriomUrl = $options->azuriom_url;
         $defaultServers = [];
-        $serversArray = $servers->map(function (OptionsServer $server) use (&$defaultServers) {
+        $serversArray = $servers->map(function (OptionsServer $server) use (&$defaultServers, $azuriomUrl) {
             $lookupKey = $server->server_id ?? $server->id;
             $defaultServers[$lookupKey] = (bool) $server->is_default;
 
@@ -45,7 +46,7 @@ class AdminServerController extends Controller
                 'type' => $server->type ?? 'minecraft',
                 'icon' => $server->icon,
                 'icon_local' => $server->icon_local,
-                'icon_url' => $server->icon_url,
+                'icon_url' => $server->iconUrlFor(null, $azuriomUrl, true),
             ];
         })->toArray();
 
@@ -95,7 +96,7 @@ class AdminServerController extends Controller
             ]);
         });
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_created', ['name' => $server->server_name]));
     }
@@ -129,7 +130,7 @@ class AdminServerController extends Controller
             'type' => ($validated['type'] ?? null) ?: ($server->type ?: 'minecraft'),
         ])->save();
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_updated'));
     }
@@ -155,7 +156,7 @@ class AdminServerController extends Controller
             $replacement?->update(['is_default' => true]);
         }
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_deleted', ['name' => $name]));
     }
@@ -202,7 +203,7 @@ class AdminServerController extends Controller
                 }
             });
 
-            LauncherCache::flush();
+            LauncherCache::flushMetadata();
 
             return redirect()->route('admin.server')->with('success', __('messages.flash.server_sync_success', ['count' => $syncedCount]));
         } catch (\RuntimeException $e) {
@@ -229,7 +230,7 @@ class AdminServerController extends Controller
         }
 
         $serverOptions->fill(collect($validated)->except('icon')->all())->save();
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_updated'));
     }
@@ -250,7 +251,7 @@ class AdminServerController extends Controller
             $target->forceFill(['is_default' => true])->save();
         });
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_set_default', ['name' => $target->server_name]));
     }
@@ -272,7 +273,7 @@ class AdminServerController extends Controller
 
         $server->icon_local = $request->file('icon')->store('server_icons', 'public');
         $server->save();
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_icon_updated', ['name' => $server->server_name]));
     }
@@ -287,7 +288,7 @@ class AdminServerController extends Controller
         if ($server->icon_local) {
             Storage::disk('public')->delete($server->icon_local);
             $server->forceFill(['icon_local' => null])->save();
-            LauncherCache::flush();
+            LauncherCache::flushMetadata();
         }
 
         return redirect()->route('admin.server')->with('success', __('messages.flash.server_icon_deleted', ['name' => $server->server_name]));

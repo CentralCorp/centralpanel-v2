@@ -36,7 +36,7 @@ class SyncActiveInstanceDisk
         $response = $next($request);
 
         if (!$request->isMethod('GET') && $request->is('file-manager/*')) {
-            LauncherCache::flush();
+            LauncherCache::flushFiles();
         }
 
         return $response;

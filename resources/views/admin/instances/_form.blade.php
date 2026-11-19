@@ -78,10 +78,11 @@
 
                     <div class="col-md-4">
                         <label for="loader_type" class="form-label">{{ __('messages.instances.loader_type') }}</label>
+                        @php($selectedLoaderType = strtolower((string) old('loader_type', $instance->loader_type ?? 'forge')))
                         <select class="form-select" id="loader_type" name="loader_type">
-                            @foreach(['forge', 'fabric', 'legacyfabric', 'neoForge', 'quilt'] as $type)
-                                <option value="{{ $type }}" {{ old('loader_type', $instance->loader_type ?? 'forge') === $type ? 'selected' : '' }}>
-                                    {{ ucfirst($type) }}
+                            @foreach(['forge' => 'Forge', 'fabric' => 'Fabric', 'legacyfabric' => 'LegacyFabric', 'neoForge' => 'NeoForge', 'quilt' => 'Quilt'] as $type => $label)
+                                <option value="{{ $type }}" {{ $selectedLoaderType === strtolower($type) ? 'selected' : '' }}>
+                                    {{ $label }}
                                 </option>
                             @endforeach
                         </select>

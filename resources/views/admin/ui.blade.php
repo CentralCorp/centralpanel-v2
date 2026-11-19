@@ -28,7 +28,7 @@
                     </div>
                     <div class="col-12">
                         <label for="alert_msg" class="form-label">{{ __('messages.ui.alert_content') }}</label>
-                        <input type="text" class="form-control" id="alert_msg" name="alert_msg" value="{{ old('alert_msg', $uiOptions->alert_msg) }}" required>
+                        <input type="text" class="form-control" id="alert_msg" name="alert_msg" value="{{ old('alert_msg', $uiOptions->alert_msg) }}">
                     </div>
                 </div>
             </div>
@@ -41,7 +41,8 @@
                     <label for="video_activation" class="form-check-label">{{ __('messages.ui.video_enable') }}</label>
                 </div>
                 <label for="video_url" class="form-label">{{ __('messages.ui.video_url') }}</label>
-                <input type="url" class="form-control" id="video_url" name="video_url" value="{{ old('video_url', $uiOptions->video_url) }}" required>
+                <input type="text" class="form-control" id="video_url" name="video_url" value="{{ old('video_url', $uiOptions->video_url) }}">
+                <div class="form-text">{{ __('messages.ui.video_url_help') }}</div>
             </div>
 
             <div class="panel-muted-surface p-3 mb-4">
@@ -49,11 +50,11 @@
                 <div class="row g-3">
                     <div class="col-md-8">
                         <label for="splash" class="form-label">{{ __('messages.ui.splash_msg') }}</label>
-                        <input type="text" class="form-control" id="splash" name="splash" value="{{ old('splash', $uiOptions->splash) }}" required>
+                        <input type="text" class="form-control" id="splash" name="splash" value="{{ old('splash', $uiOptions->splash) }}">
                     </div>
                     <div class="col-md-4">
                         <label for="splash_author" class="form-label">{{ __('messages.ui.splash_author') }}</label>
-                        <input type="text" class="form-control" id="splash_author" name="splash_author" value="{{ old('splash_author', $uiOptions->splash_author) }}" required>
+                        <input type="text" class="form-control" id="splash_author" name="splash_author" value="{{ old('splash_author', $uiOptions->splash_author) }}">
                     </div>
                 </div>
             </div>

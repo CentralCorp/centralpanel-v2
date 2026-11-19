@@ -48,7 +48,7 @@ class AdminSecurityController extends Controller
                 'maintenance_bypass_users' => $bypassUsers,
             ]);
 
-            LauncherCache::flush();
+            LauncherCache::flushMetadata();
 
             return redirect()->route('admin.security')->with('success', __('messages.flash.security_updated'));
         }
@@ -80,7 +80,7 @@ class AdminSecurityController extends Controller
         }
 
         $security->update($updatePayload);
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.security')->with('success', __('messages.flash.security_updated'));
     }

@@ -192,7 +192,7 @@ class AdminWhitelistController extends Controller
             }
         }
 
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.whitelist')->with('success', __('messages.flash.whitelist_updated'));
     }
@@ -200,7 +200,7 @@ class AdminWhitelistController extends Controller
     public function destroyUser($id)
     {
         OptionsWhitelist::findOrFail($id)->delete();
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.whitelist')->with('success', __('messages.flash.whitelist_user_deleted'));
     }
@@ -208,7 +208,7 @@ class AdminWhitelistController extends Controller
     public function destroyRole($id)
     {
         OptionsWhitelistRole::findOrFail($id)->delete();
-        LauncherCache::flush();
+        LauncherCache::flushMetadata();
 
         return redirect()->route('admin.whitelist')->with('success', __('messages.flash.whitelist_role_deleted'));
     }

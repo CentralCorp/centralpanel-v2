@@ -397,16 +397,16 @@ class MultiInstanceApiTest extends TestCase
         Cache::clear();
 
         $apiRaw = $this->getJson('/utils/api')->assertOk()->getContent();
-        $this->assertStringContainsString('"role_data": {}', $apiRaw);
+        $this->assertStringContainsString('"role_data":{}', $apiRaw);
 
         $modsRaw = $this->getJson('/utils/instances/default/mods')->assertOk()->getContent();
-        $this->assertStringContainsString('"mods": {}', $modsRaw);
+        $this->assertStringContainsString('"mods":{}', $modsRaw);
     }
 
     public function test_upgrade_from_v1_0_8_schema_migrates_legacy_data_cleanly(): void
     {
-        // Roll back the 3 Phase-2 v2.0 migrations so DB matches exact v1.0.8 schema
-        \Illuminate\Support\Facades\Artisan::call('migrate:rollback', ['--step' => 3]);
+        // Roll back the 4 Phase-2+ v2.0 migrations so DB matches exact v1.0.8 schema
+        \Illuminate\Support\Facades\Artisan::call('migrate:rollback', ['--step' => 4]);
 
         $this->assertFalse(\Illuminate\Support\Facades\Schema::hasTable('instances'));
         $this->assertFalse(\Illuminate\Support\Facades\Schema::hasTable('panel_roles'));
