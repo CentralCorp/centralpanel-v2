@@ -97,7 +97,15 @@
         const mcVersion = document.getElementById('minecraft_version');
         const buildSelect = document.getElementById('loader-build-version');
         const buildInput = document.getElementById('loader-build-version-input');
-        const currentVersion = "{{ $row->loader_forge_version ?? $row->loader_build_version ?? '' }}";
+        const currentVersion = @json($row->loader_forge_version ?? $row->loader_build_version ?? '');
+        const endpoints = {
+            forge: @json(route('admin.loader.builds')),
+            fabric: @json(route('admin.loader.fabric-versions')),
+            neoforge: @json(route('admin.loader.neoforge-versions')),
+            quilt: @json(route('admin.loader.quilt-versions')),
+            legacyfabric: @json(route('admin.loader.legacyfabric-versions')),
+        };
+        let mcDebounceTimer = null;
 
         function toggleBuildInputs(showSelect) {
             buildSelect.classList.toggle('d-none', !showSelect);
@@ -105,6 +113,7 @@
         }
 
         function setLoading() {
+            toggleBuildInputs(true);
             buildSelect.innerHTML = '<option>{{ __('messages.common.loading') }}</option>';
         }
 
@@ -122,37 +131,56 @@
             buildSelect.innerHTML = '';
             builds.forEach((build) => {
                 const value = mapper(build);
+                if (!value) return;
                 const option = document.createElement('option');
                 option.value = value;
                 option.text = value;
                 if (value === currentVersion) option.selected = true;
                 buildSelect.appendChild(option);
             });
+            if (buildSelect.options.length === 0) {
+                toggleBuildInputs(false);
+                return;
+            }
             toggleBuildInputs(true);
             syncBuildVersion();
         }
 
-        function loadForgeBuilds(version) {
-            if (!version) return;
+        function loadVersionedBuilds(endpointUrl, version) {
+            const cleanVersion = (version || '').trim();
+            if (!cleanVersion) {
+                toggleBuildInputs(false);
+                return;
+            }
             setLoading();
-            fetch(`/admin/loader/builds?mc_version=${encodeURIComponent(version)}`)
+            fetch(`${endpointUrl}?mc_version=${encodeURIComponent(cleanVersion)}`)
                 .then(response => response.json())
-                .then(data => renderBuilds(data.builds || [], build => build))
+                .then(data => renderBuilds(data.builds || data.versions || [], item => typeof item === 'string' ? item : item.version))
                 .catch(() => toggleBuildInputs(false));
         }
 
         function loadFabricVersions() {
             setLoading();
-            fetch('/admin/loader/fabric-versions')
+            fetch(endpoints.fabric)
                 .then(response => response.json())
-                .then(data => renderBuilds(data.versions || [], version => version.version))
+                .then(data => renderBuilds(data.versions || [], version => typeof version === 'string' ? version : version.version))
                 .catch(() => toggleBuildInputs(false));
         }
 
         function refreshBuildSource() {
-            switch (loaderType.value) {
+            const normalizedType = (loaderType.value || '').toLowerCase();
+            switch (normalizedType) {
                 case 'forge':
-                    loadForgeBuilds(mcVersion.value);
+                    loadVersionedBuilds(endpoints.forge, mcVersion.value);
+                    break;
+                case 'neoforge':
+                    loadVersionedBuilds(endpoints.neoforge, mcVersion.value);
+                    break;
+                case 'quilt':
+                    loadVersionedBuilds(endpoints.quilt, mcVersion.value);
+                    break;
+                case 'legacyfabric':
+                    loadVersionedBuilds(endpoints.legacyfabric, mcVersion.value);
                     break;
                 case 'fabric':
                     loadFabricVersions();
@@ -164,7 +192,11 @@
 
         loaderType.addEventListener('change', refreshBuildSource);
         mcVersion.addEventListener('input', () => {
-            if (loaderType.value === 'forge') loadForgeBuilds(mcVersion.value);
+            const normalizedType = (loaderType.value || '').toLowerCase();
+            if (['forge', 'neoforge', 'quilt', 'legacyfabric'].includes(normalizedType)) {
+                clearTimeout(mcDebounceTimer);
+                mcDebounceTimer = setTimeout(refreshBuildSource, 300);
+            }
         });
         buildSelect.addEventListener('change', syncBuildVersion);
         buildSelect.closest('form').addEventListener('submit', syncBuildVersion);

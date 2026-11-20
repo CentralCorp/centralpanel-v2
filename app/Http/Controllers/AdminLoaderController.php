@@ -111,11 +111,143 @@ class AdminLoaderController extends Controller
     public function getFabricVersions()
     {
         $versions = Cache::remember('fabric_loader_versions', now()->addHours(6), function () {
-            $response = Http::timeout(10)->get('https://meta.fabricmc.net/v2/versions/loader');
+            try {
+                $response = Http::timeout(10)->get('https://meta.fabricmc.net/v2/versions/loader');
 
-            return $response->successful() ? $response->json() : [];
+                return $response->successful() && is_array($response->json()) ? $response->json() : [];
+            } catch (\Throwable) {
+                return [];
+            }
         });
 
         return response()->json(['versions' => $versions]);
+    }
+
+    public function getNeoForgeVersions(Request $request)
+    {
+        $validated = $request->validate([
+            'mc_version' => 'required|string|max:50',
+        ]);
+
+        $mcVersion = trim($validated['mc_version']);
+
+        $builds = Cache::remember("neoforge_versions:{$mcVersion}", now()->addHours(6), function () use ($mcVersion) {
+            $matched = [];
+
+            if (preg_match('/^1\.(\d+)(?:\.(\d+))?$/', $mcVersion, $m)) {
+                $prefix = $m[1] . '.' . ($m[2] ?? '0') . '.';
+
+                try {
+                    $response = Http::timeout(10)->get('https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge');
+                    if ($response->successful()) {
+                        $all = $response->json('versions');
+                        if (is_array($all)) {
+                            foreach ($all as $version) {
+                                if (is_string($version) && str_starts_with($version, $prefix)) {
+                                    $matched[] = $version;
+                                }
+                            }
+                        }
+                    }
+                } catch (\Throwable) {
+                    // Gracefully ignore upstream network errors.
+                }
+            }
+
+            if ($mcVersion === '1.20.1') {
+                try {
+                    $legacyResponse = Http::timeout(10)->get('https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/forge');
+                    if ($legacyResponse->successful()) {
+                        $legacyVersions = $legacyResponse->json('versions');
+                        if (is_array($legacyVersions)) {
+                            foreach ($legacyVersions as $version) {
+                                if (is_string($version) && str_starts_with($version, '1.20.1-')) {
+                                    $matched[] = $version;
+                                }
+                            }
+                        }
+                    }
+                } catch (\Throwable) {
+                    // Gracefully ignore upstream network errors.
+                }
+            }
+
+            $matched = array_values(array_unique($matched));
+            usort($matched, static fn (string $a, string $b) => version_compare($b, $a));
+
+            return $matched;
+        });
+
+        return response()->json(['builds' => $builds, 'versions' => $builds]);
+    }
+
+    public function getQuiltVersions(Request $request)
+    {
+        $validated = $request->validate([
+            'mc_version' => 'required|string|max:50',
+        ]);
+
+        $mcVersion = trim($validated['mc_version']);
+
+        $versions = Cache::remember("quilt_versions:{$mcVersion}", now()->addHours(6), function () use ($mcVersion) {
+            try {
+                $url = 'https://meta.quiltmc.org/v3/versions/loader/' . rawurlencode($mcVersion);
+                $response = Http::timeout(10)->get($url);
+
+                return $this->extractMetaLoaderVersions($response->successful() ? $response->json() : []);
+            } catch (\Throwable) {
+                return [];
+            }
+        });
+
+        return response()->json(['builds' => $versions, 'versions' => $versions]);
+    }
+
+    public function getLegacyFabricVersions(Request $request)
+    {
+        $validated = $request->validate([
+            'mc_version' => 'required|string|max:50',
+        ]);
+
+        $mcVersion = trim($validated['mc_version']);
+
+        $versions = Cache::remember("legacyfabric_versions:{$mcVersion}", now()->addHours(6), function () use ($mcVersion) {
+            try {
+                $url = 'https://meta.legacyfabric.net/v2/versions/loader/' . rawurlencode($mcVersion);
+                $response = Http::timeout(10)->get($url);
+
+                return $this->extractMetaLoaderVersions($response->successful() ? $response->json() : []);
+            } catch (\Throwable) {
+                return [];
+            }
+        });
+
+        return response()->json(['builds' => $versions, 'versions' => $versions]);
+    }
+
+    /**
+     * Extract unique loader version strings from Quilt/LegacyFabric Meta API payloads.
+     *
+     * @param  mixed  $payload
+     * @return array<int, string>
+     */
+    private function extractMetaLoaderVersions(mixed $payload): array
+    {
+        if (!is_array($payload)) {
+            return [];
+        }
+
+        $versions = [];
+        foreach ($payload as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $ver = $entry['loader']['version'] ?? $entry['version'] ?? null;
+            if (is_string($ver) && $ver !== '' && !in_array($ver, $versions, true)) {
+                $versions[] = $ver;
+            }
+        }
+
+        return $versions;
     }
 }
