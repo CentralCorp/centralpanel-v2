@@ -1336,7 +1336,9 @@ class CurseForgeService
     private function decodeResponse(\Illuminate\Http\Client\Response $response, string $defaultMessage): array
     {
         if ($response->status() === 403 || $response->status() === 401) {
-            throw new CurseForgeException("Clé API CurseForge invalide ou refusée (HTTP {$response->status()}).", 401);
+            $detail = trim(preg_replace('/\s+/', ' ', strip_tags((string) $response->body())) ?? '');
+            $snippet = $detail !== '' ? ' — ' . mb_substr($detail, 0, 160) : '';
+            throw new CurseForgeException("Clé API CurseForge invalide ou refusée (HTTP {$response->status()}){$snippet}.", 401);
         }
 
         if (!$response->successful()) {
