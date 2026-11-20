@@ -8,14 +8,14 @@ use App\Models\CurseForgeModpack;
 use App\Models\Instance;
 use App\Models\OptionsGeneral;
 use App\Models\OptionsLoader;
+use App\Models\OptionsMods;
 use App\Support\LauncherCache;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\Pool;
-use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use ZipArchive;
 
 class CurseForgeService
@@ -554,6 +554,7 @@ class CurseForgeService
         $fileName = $this->sanitizeJarFilename((string) ($targetFile['fileName'] ?? ''));
         $instance->ensureDirectoriesExist();
         $modsDir = $this->modsDirectory($instance);
+        $this->cleanupResidualTmpFiles($modsDir);
         $targetPath = $modsDir . DIRECTORY_SEPARATOR . $fileName;
 
         $this->downloadBinaryFile($downloadUrl, $targetPath, $targetFile);
@@ -562,6 +563,9 @@ class CurseForgeService
             ->where('instance_id', $instance->id)
             ->where('curseforge_mod_id', $modId)
             ->first();
+
+        $oldFileName = $existing ? basename((string) $existing->file_name) : null;
+        $oldLogoUrl = $existing?->logo_url;
 
         if ($existing && $existing->file_name !== $fileName) {
             $oldPath = $modsDir . DIRECTORY_SEPARATOR . basename($existing->file_name);
@@ -596,6 +600,8 @@ class CurseForgeService
                 'download_url' => $downloadUrl,
             ]
         );
+
+        $this->syncOptionalModsOnModUpdate($instance, $record, $oldFileName, $oldLogoUrl);
 
         $this->invalidateInstancePackageCache($instance);
 
@@ -720,6 +726,7 @@ class CurseForgeService
 
             $instance->ensureDirectoriesExist();
             $modsDir = $this->modsDirectory($instance);
+            $this->cleanupResidualTmpFiles($modsDir);
 
             $fileIds = [];
             $modIds = [];
@@ -777,126 +784,74 @@ class CurseForgeService
                 ];
             }
 
-            // Download JARs in parallel batches of 8 with PK signature verification & atomic write
-            foreach (array_chunk($downloadQueue, 8) as $batch) {
-                $responses = Http::pool(static function (Pool $pool) use ($batch): array {
-                    $requests = [];
-                    foreach ($batch as $idx => $item) {
-                        $requests[] = $pool->as((string) $idx)->timeout(120)->get($item['url']);
-                    }
-
-                    return $requests;
-                });
-
-                foreach ($batch as $idx => $item) {
-                    $key = (string) $idx;
-                    $resp = $responses[$key] ?? null;
-                    $downloaded = false;
-
-                    if ($resp instanceof Response && $resp->successful()) {
-                        $body = $resp->body();
-                        if ($body !== '' && substr($body, 0, 2) === 'PK') {
-                            try {
-                                $this->writeFileAtomically($item['target_path'], $body);
-                                $downloaded = true;
-                            } catch (\Throwable) {
-                                $downloaded = false;
-                            }
-                        }
-                    }
-
-                    if (!$downloaded) {
-                        try {
-                            $this->downloadBinaryFile($item['url'], $item['target_path'], $item['file_data']);
-                            $downloaded = true;
-                        } catch (\Throwable $e) {
-                            $skippedCount++;
-                            $errors[] = "Échec du téléchargement de {$item['file_name']} : " . $e->getMessage();
-                            continue;
-                        }
-                    }
-
-                    $projectId = $item['project_id'];
-                    $entryFileId = $item['file_id'];
-                    $fileData = $item['file_data'];
-                    $fileName = $item['file_name'];
-                    $targetPath = $item['target_path'];
-                    $fileUrl = $item['url'];
-
-                    $modMeta = $resolvedMods[$projectId] ?? [];
-                    $logo = is_array($modMeta['logo'] ?? null) ? $modMeta['logo'] : [];
-                    $logoUrl = (string) ($logo['thumbnailUrl'] ?? $logo['url'] ?? '');
-                    $fingerprint = isset($fileData['fileFingerprint']) && is_numeric($fileData['fileFingerprint'])
-                        ? (int) $fileData['fileFingerprint']
-                        : self::computeFileFingerprint($targetPath);
-
-                    $existing = CurseForgeMod::query()
-                        ->where('instance_id', $instance->id)
-                        ->where('curseforge_mod_id', $projectId)
-                        ->first();
-
-                    if ($existing && $existing->file_name !== $fileName) {
-                        $oldPath = $modsDir . DIRECTORY_SEPARATOR . basename($existing->file_name);
-                        if (is_file($oldPath)) {
-                            @unlink($oldPath);
-                        }
-                    }
-
-                    $updateValues = [
-                        'curseforge_file_id' => $entryFileId,
-                        'name' => (string) ($modMeta['name'] ?? pathinfo($fileName, PATHINFO_FILENAME)),
-                        'slug' => isset($modMeta['slug']) ? (string) $modMeta['slug'] : null,
-                        'logo_url' => $logoUrl !== '' ? $logoUrl : null,
-                        'file_name' => $fileName,
-                        'version' => (string) ($fileData['displayName'] ?? $fileName),
-                        'mc_version' => $mcVersion,
-                        'loader' => $loader,
-                        'fingerprint' => $fingerprint,
-                        'download_url' => $fileUrl,
-                    ];
-
-                    if ($modpack !== null) {
-                        $updateValues['modpack_id'] = $modpack->id;
-                    }
-
-                    CurseForgeMod::updateOrCreate(
-                        [
-                            'instance_id' => $instance->id,
-                            'curseforge_mod_id' => $projectId,
-                        ],
-                        $updateValues
-                    );
-
-                    $installedCount++;
-                    $installedMods[] = $fileName;
-                    $installedModIds[] = $projectId;
+            // Stream each JAR directly to disk via sink() (zero-RAM) with PK signature check & atomic move
+            foreach ($downloadQueue as $item) {
+                try {
+                    $this->downloadBinaryFile($item['url'], $item['target_path'], $item['file_data']);
+                } catch (\Throwable $e) {
+                    $skippedCount++;
+                    $errors[] = "Échec du téléchargement de {$item['file_name']} : " . $e->getMessage();
+                    continue;
                 }
+
+                $projectId = $item['project_id'];
+                $entryFileId = $item['file_id'];
+                $fileData = $item['file_data'];
+                $fileName = $item['file_name'];
+                $targetPath = $item['target_path'];
+                $fileUrl = $item['url'];
+
+                $modMeta = $resolvedMods[$projectId] ?? [];
+                $logo = is_array($modMeta['logo'] ?? null) ? $modMeta['logo'] : [];
+                $logoUrl = (string) ($logo['thumbnailUrl'] ?? $logo['url'] ?? '');
+                $fingerprint = isset($fileData['fileFingerprint']) && is_numeric($fileData['fileFingerprint'])
+                    ? (int) $fileData['fileFingerprint']
+                    : self::computeFileFingerprint($targetPath);
+
+                $existing = CurseForgeMod::query()
+                    ->where('instance_id', $instance->id)
+                    ->where('curseforge_mod_id', $projectId)
+                    ->first();
+
+                if ($existing && $existing->file_name !== $fileName) {
+                    $oldPath = $modsDir . DIRECTORY_SEPARATOR . basename($existing->file_name);
+                    if (is_file($oldPath)) {
+                        @unlink($oldPath);
+                    }
+                }
+
+                $updateValues = [
+                    'curseforge_file_id' => $entryFileId,
+                    'name' => (string) ($modMeta['name'] ?? pathinfo($fileName, PATHINFO_FILENAME)),
+                    'slug' => isset($modMeta['slug']) ? (string) $modMeta['slug'] : null,
+                    'logo_url' => $logoUrl !== '' ? $logoUrl : null,
+                    'file_name' => $fileName,
+                    'version' => (string) ($fileData['displayName'] ?? $fileName),
+                    'mc_version' => $mcVersion,
+                    'loader' => $loader,
+                    'fingerprint' => $fingerprint,
+                    'download_url' => $fileUrl,
+                ];
+
+                if ($modpack !== null) {
+                    $updateValues['modpack_id'] = $modpack->id;
+                }
+
+                CurseForgeMod::updateOrCreate(
+                    [
+                        'instance_id' => $instance->id,
+                        'curseforge_mod_id' => $projectId,
+                    ],
+                    $updateValues
+                );
+
+                $installedCount++;
+                $installedMods[] = $fileName;
+                $installedModIds[] = $projectId;
             }
 
             // Copy any overrides/mods/* files directly into instance mods/
-            $overridesDir = trim((string) ($manifest['overrides'] ?? 'overrides'), '/\\');
-            if ($overridesDir !== '') {
-                $prefix = $overridesDir . '/mods/';
-                for ($i = 0; $i < $zip->numFiles; $i++) {
-                    $entryName = str_replace('\\', '/', (string) $zip->getNameIndex($i));
-                    if (!str_starts_with($entryName, $prefix) || str_ends_with($entryName, '/')) {
-                        continue;
-                    }
-                    $relName = substr($entryName, strlen($prefix));
-                    if ($relName === '' || str_contains($relName, '/') || str_contains($relName, '..')) {
-                        continue;
-                    }
-                    if (!str_ends_with(strtolower($relName), '.jar')) {
-                        continue;
-                    }
-                    $stream = $zip->getFromIndex($i);
-                    if ($stream !== false) {
-                        $safeName = $this->sanitizeJarFilename($relName);
-                        $this->writeFileAtomically($modsDir . DIRECTORY_SEPARATOR . $safeName, $stream);
-                        $overridesCount++;
-                    }
-                }
-            }
+            $overridesCount = $this->extractModpackOverrides($zip, $manifest, $modsDir);
 
             $this->invalidateInstancePackageCache($instance);
 
@@ -913,6 +868,493 @@ class CurseForgeService
         } finally {
             $zip->close();
         }
+    }
+
+    /**
+     * Step 1 of chunked modpack install/update:
+     * Download the small modpack ZIP via sink(), parse manifest.json, resolve CurseForge metadata,
+     * extract overrides/mods/*, upsert CurseForgeModpack, and persist a JSON session file.
+     *
+     * @return array<string, mixed>
+     */
+    public function prepareModpackInstall(
+        Instance $instance,
+        int $modpackId,
+        ?int $fileId = null,
+        ?int $existingModpackId = null
+    ): array {
+        if (!class_exists(ZipArchive::class)) {
+            throw new CurseForgeException("L'extension PHP ZipArchive est requise pour installer un modpack.", 500);
+        }
+
+        [$mcVersion, $loader] = $this->assertInstanceSupportsCurseForge($instance);
+
+        $isUpdate = false;
+        $previousMods = [];
+
+        if ($existingModpackId !== null) {
+            $existingPack = CurseForgeModpack::findOrFail($existingModpackId);
+            if ((int) $existingPack->instance_id !== (int) $instance->id) {
+                throw new CurseForgeException("Ce modpack n'appartient pas à l'instance active.", 403);
+            }
+            $isUpdate = true;
+            $modpackId = (int) $existingPack->curseforge_modpack_id;
+            $previousMods = CurseForgeMod::query()
+                ->where('instance_id', $instance->id)
+                ->where('modpack_id', $existingPack->id)
+                ->get(['id', 'curseforge_mod_id', 'file_name'])
+                ->map(static fn (CurseForgeMod $m): array => [
+                    'id' => (int) $m->id,
+                    'curseforge_mod_id' => (int) $m->curseforge_mod_id,
+                    'file_name' => basename((string) $m->file_name),
+                ])
+                ->all();
+        }
+
+        $packResponse = $this->client()->get(self::API_BASE_URL . "/mods/{$modpackId}");
+        $packPayload = $this->decodeResponse($packResponse, "Impossible de récupérer le modpack CurseForge #{$modpackId}.");
+        $rawPack = is_array($packPayload['data'] ?? null) ? $packPayload['data'] : [];
+
+        if ($rawPack === []) {
+            throw new CurseForgeException("Modpack CurseForge #{$modpackId} introuvable.", 404);
+        }
+
+        $targetFile = $this->resolveStrictTargetFile($modpackId, $rawPack, $fileId, $mcVersion, $loader);
+        $downloadUrl = $this->resolveDownloadUrl($targetFile);
+        if ($downloadUrl === null) {
+            throw new CurseForgeException("Aucune URL de téléchargement disponible pour ce modpack.", 422);
+        }
+
+        $tmpZip = tempnam(sys_get_temp_dir(), 'cf_modpack_');
+        if ($tmpZip === false) {
+            throw new CurseForgeException("Impossible de créer un fichier temporaire pour le modpack.", 500);
+        }
+
+        $logo = is_array($rawPack['logo'] ?? null) ? $rawPack['logo'] : [];
+        $logoUrl = (string) ($logo['thumbnailUrl'] ?? $logo['url'] ?? '');
+        $packName = (string) ($rawPack['name'] ?? 'Modpack');
+        $packFileName = (string) ($targetFile['fileName'] ?? '');
+        $packVersion = (string) ($targetFile['displayName'] ?? $packFileName);
+
+        try {
+            $this->downloadBinaryFile($downloadUrl, $tmpZip, $targetFile);
+
+            $zip = new ZipArchive();
+            if ($zip->open($tmpZip) !== true) {
+                throw new CurseForgeException("Archive de modpack invalide ou corrompue.", 422);
+            }
+
+            try {
+                $manifestRaw = $zip->getFromName('manifest.json');
+                if ($manifestRaw === false) {
+                    throw new CurseForgeException("Le fichier manifest.json est absent de l'archive du modpack.", 422);
+                }
+
+                $manifest = $this->parseModpackManifest($manifestRaw);
+                $manifestFiles = $manifest['files'];
+
+                $instance->ensureDirectoriesExist();
+                $modsDir = $this->modsDirectory($instance);
+                $this->cleanupResidualTmpFiles($modsDir);
+
+                $fileIds = [];
+                $modIds = [];
+                foreach ($manifestFiles as $entry) {
+                    $fileIds[] = (int) $entry['fileID'];
+                    $modIds[] = (int) $entry['projectID'];
+                }
+                $fileIds = array_values(array_unique(array_filter($fileIds, static fn (int $id): bool => $id > 0)));
+                $modIds = array_values(array_unique(array_filter($modIds, static fn (int $id): bool => $id > 0)));
+
+                $resolvedFiles = $this->fetchFilesBatch($fileIds);
+                $resolvedMods = $this->fetchModsBatch($modIds);
+
+                $overridesCount = $this->extractModpackOverrides($zip, $manifest, $modsDir);
+            } finally {
+                $zip->close();
+            }
+
+            $modpackRecord = CurseForgeModpack::updateOrCreate(
+                [
+                    'instance_id' => $instance->id,
+                    'curseforge_modpack_id' => $modpackId,
+                ],
+                [
+                    'curseforge_file_id' => (int) ($targetFile['id'] ?? 0),
+                    'name' => $packName,
+                    'slug' => isset($rawPack['slug']) ? (string) $rawPack['slug'] : null,
+                    'logo_url' => $logoUrl !== '' ? $logoUrl : null,
+                    'file_name' => $packFileName !== '' ? $packFileName : null,
+                    'version' => $packVersion !== '' ? $packVersion : ((string) ($manifest['version'] ?? '') ?: null),
+                    'mc_version' => $mcVersion,
+                    'loader' => $loader,
+                    'download_url' => $downloadUrl,
+                ]
+            );
+
+            $queue = [];
+            $skippedCount = 0;
+            $errors = [];
+
+            foreach ($manifestFiles as $entry) {
+                $projectId = (int) $entry['projectID'];
+                $entryFileId = (int) $entry['fileID'];
+
+                $fileData = $resolvedFiles[$entryFileId] ?? null;
+                if ($fileData === null) {
+                    $skippedCount++;
+                    $errors[] = "Fichier #{$entryFileId} (projet #{$projectId}) introuvable via l'API CurseForge.";
+                    continue;
+                }
+
+                $fileUrl = $this->resolveDownloadUrl($fileData);
+                if ($fileUrl === null) {
+                    $skippedCount++;
+                    $errors[] = "Aucune URL de téléchargement pour le fichier #{$entryFileId}.";
+                    continue;
+                }
+
+                $rawFileName = (string) ($fileData['fileName'] ?? '');
+                if ($rawFileName === '' || !str_ends_with(strtolower($rawFileName), '.jar')) {
+                    $skippedCount++;
+                    continue;
+                }
+
+                $fileName = $this->sanitizeJarFilename($rawFileName);
+                $modMeta = $resolvedMods[$projectId] ?? [];
+                $modLogo = is_array($modMeta['logo'] ?? null) ? $modMeta['logo'] : [];
+                $modLogoUrl = (string) ($modLogo['thumbnailUrl'] ?? $modLogo['url'] ?? '');
+
+                $queue[] = [
+                    'project_id' => $projectId,
+                    'file_id' => $entryFileId,
+                    'file_name' => $fileName,
+                    'name' => (string) ($modMeta['name'] ?? pathinfo($fileName, PATHINFO_FILENAME)),
+                    'slug' => isset($modMeta['slug']) ? (string) $modMeta['slug'] : null,
+                    'logo_url' => $modLogoUrl !== '' ? $modLogoUrl : null,
+                    'version' => (string) ($fileData['displayName'] ?? $fileName),
+                    'fingerprint' => isset($fileData['fileFingerprint']) && is_numeric($fileData['fileFingerprint'])
+                        ? (int) $fileData['fileFingerprint']
+                        : null,
+                    'url' => $fileUrl,
+                    'file_data' => [
+                        'id' => $entryFileId,
+                        'fileName' => $fileName,
+                    ],
+                ];
+            }
+
+            $sessionId = Str::uuid()->toString();
+            $sessionData = [
+                'session_id' => $sessionId,
+                'instance_id' => (int) $instance->id,
+                'modpack_id' => (int) $modpackRecord->id,
+                'curseforge_modpack_id' => $modpackId,
+                'modpack_name' => (string) ($manifest['name'] ?? $packName),
+                'modpack_version' => (string) ($manifest['version'] ?? $packVersion),
+                'mc_version' => $mcVersion,
+                'loader' => $loader,
+                'is_update' => $isUpdate,
+                'previous_mods' => $previousMods,
+                'overrides_count' => $overridesCount,
+                'installed_count' => 0,
+                'skipped_count' => $skippedCount,
+                'errors' => $errors,
+                'installed_mod_ids' => [],
+                'files' => $queue,
+                'created_at' => now()->toIso8601String(),
+            ];
+
+            $this->writeModpackSession($sessionId, $sessionData);
+
+            return [
+                'session_id' => $sessionId,
+                'modpack' => $modpackRecord->toArray(),
+                'modpack_name' => $sessionData['modpack_name'],
+                'total' => count($queue),
+                'overrides_count' => $overridesCount,
+                'skipped_count' => $skippedCount,
+                'errors' => $errors,
+                'files' => array_map(
+                    static fn (array $item): array => [
+                        'file_name' => $item['file_name'],
+                        'name' => $item['name'],
+                    ],
+                    $queue
+                ),
+            ];
+        } finally {
+            if (is_file($tmpZip)) {
+                @unlink($tmpZip);
+            }
+        }
+    }
+
+    /**
+     * Step 2 of chunked modpack install/update:
+     * Stream a small batch (1-2 files) directly to disk via sink() so each HTTP request stays well under 60s.
+     *
+     * @return array<string, mixed>
+     */
+    public function installModpackBatch(Instance $instance, string $sessionId, int $offset = 0, int $limit = 1): array
+    {
+        $session = $this->readModpackSession($sessionId, $instance);
+        $files = is_array($session['files'] ?? null) ? $session['files'] : [];
+        $total = count($files);
+
+        $offset = max(0, $offset);
+        $limit = max(1, min(5, $limit));
+        $slice = array_slice($files, $offset, $limit);
+
+        $instance->ensureDirectoriesExist();
+        $modsDir = $this->modsDirectory($instance);
+        $this->cleanupResidualTmpFiles($modsDir);
+
+        $installedInBatch = 0;
+        $skippedInBatch = 0;
+        $batchErrors = [];
+        $currentFiles = [];
+
+        foreach ($slice as $item) {
+            $fileName = (string) $item['file_name'];
+            $currentFiles[] = $fileName;
+            $targetPath = $modsDir . DIRECTORY_SEPARATOR . $fileName;
+
+            try {
+                $this->downloadBinaryFile(
+                    (string) $item['url'],
+                    $targetPath,
+                    is_array($item['file_data'] ?? null) ? $item['file_data'] : null
+                );
+            } catch (\Throwable $e) {
+                $skippedInBatch++;
+                $err = "Échec du téléchargement de {$fileName} : " . $e->getMessage();
+                $batchErrors[] = $err;
+                $session['errors'][] = $err;
+                continue;
+            }
+
+            $projectId = (int) $item['project_id'];
+            $existing = CurseForgeMod::query()
+                ->where('instance_id', $instance->id)
+                ->where('curseforge_mod_id', $projectId)
+                ->first();
+
+            if ($existing && $existing->file_name !== $fileName) {
+                $oldPath = $modsDir . DIRECTORY_SEPARATOR . basename($existing->file_name);
+                if (is_file($oldPath)) {
+                    @unlink($oldPath);
+                }
+            }
+
+            $fingerprint = isset($item['fingerprint']) && is_numeric($item['fingerprint'])
+                ? (int) $item['fingerprint']
+                : self::computeFileFingerprint($targetPath);
+
+            CurseForgeMod::updateOrCreate(
+                [
+                    'instance_id' => $instance->id,
+                    'curseforge_mod_id' => $projectId,
+                ],
+                [
+                    'modpack_id' => (int) $session['modpack_id'],
+                    'curseforge_file_id' => (int) $item['file_id'],
+                    'name' => (string) $item['name'],
+                    'slug' => $item['slug'] ?? null,
+                    'logo_url' => $item['logo_url'] ?? null,
+                    'file_name' => $fileName,
+                    'version' => (string) $item['version'],
+                    'mc_version' => (string) $session['mc_version'],
+                    'loader' => (string) $session['loader'],
+                    'fingerprint' => $fingerprint,
+                    'download_url' => (string) $item['url'],
+                ]
+            );
+
+            $installedInBatch++;
+            $session['installed_mod_ids'][] = $projectId;
+        }
+
+        $session['installed_count'] = (int) ($session['installed_count'] ?? 0) + $installedInBatch;
+        $session['skipped_count'] = (int) ($session['skipped_count'] ?? 0) + $skippedInBatch;
+        $session['installed_mod_ids'] = array_values(array_unique($session['installed_mod_ids'] ?? []));
+
+        $this->writeModpackSession($sessionId, $session);
+
+        $nextOffset = min($total, $offset + count($slice));
+        $done = $nextOffset >= $total;
+
+        return [
+            'session_id' => $sessionId,
+            'next_offset' => $nextOffset,
+            'total' => $total,
+            'done' => $done,
+            'installed_in_batch' => $installedInBatch,
+            'skipped_in_batch' => $skippedInBatch,
+            'errors' => $batchErrors,
+            'current_files' => $currentFiles,
+        ];
+    }
+
+    /**
+     * Step 3 of chunked modpack install/update:
+     * Remove stale .jar files on update, refresh mods_count, purge instance zip cache, and delete session file.
+     *
+     * @return array<string, mixed>
+     */
+    public function finalizeModpackInstall(Instance $instance, string $sessionId): array
+    {
+        $session = $this->readModpackSession($sessionId, $instance);
+        $modsDir = $this->modsDirectory($instance);
+        $this->cleanupResidualTmpFiles($modsDir);
+
+        $modpack = CurseForgeModpack::findOrFail((int) $session['modpack_id']);
+        $removedCount = 0;
+
+        if (!empty($session['is_update']) && !empty($session['previous_mods']) && is_array($session['previous_mods'])) {
+            $newModIds = array_flip(array_map('intval', $session['installed_mod_ids'] ?? []));
+
+            foreach ($session['previous_mods'] as $oldEntry) {
+                $oldProjectId = (int) ($oldEntry['curseforge_mod_id'] ?? 0);
+                if (isset($newModIds[$oldProjectId])) {
+                    continue;
+                }
+
+                $oldRecordId = (int) ($oldEntry['id'] ?? 0);
+                $oldFileName = basename((string) ($oldEntry['file_name'] ?? ''));
+
+                if ($oldRecordId > 0) {
+                    CurseForgeMod::query()
+                        ->where('id', $oldRecordId)
+                        ->where('instance_id', $instance->id)
+                        ->delete();
+                }
+                $removedCount++;
+
+                if ($oldFileName !== '') {
+                    $stillReferenced = CurseForgeMod::query()
+                        ->where('instance_id', $instance->id)
+                        ->where('file_name', $oldFileName)
+                        ->exists();
+
+                    if (!$stillReferenced) {
+                        $oldPath = $modsDir . DIRECTORY_SEPARATOR . $oldFileName;
+                        if (is_file($oldPath)) {
+                            @unlink($oldPath);
+                        }
+                    }
+                }
+            }
+        }
+
+        $modpack->mods_count = $modpack->mods()->count();
+        $modpack->save();
+
+        $this->invalidateInstancePackageCache($instance);
+
+        $sessionPath = $this->modpackSessionPath($sessionId);
+        if (is_file($sessionPath)) {
+            @unlink($sessionPath);
+        }
+
+        return [
+            'modpack_name' => (string) ($session['modpack_name'] ?? $modpack->name),
+            'modpack_version' => (string) ($session['modpack_version'] ?? $modpack->version ?? ''),
+            'installed_count' => (int) ($session['installed_count'] ?? 0),
+            'overrides_count' => (int) ($session['overrides_count'] ?? 0),
+            'skipped_count' => (int) ($session['skipped_count'] ?? 0),
+            'removed_count' => $removedCount,
+            'errors' => is_array($session['errors'] ?? null) ? $session['errors'] : [],
+            'is_update' => (bool) ($session['is_update'] ?? false),
+            'modpack' => $modpack->fresh()->toArray(),
+        ];
+    }
+
+    /**
+     * Extract overrides/mods/*.jar from a modpack ZIP into the instance mods/ directory.
+     *
+     * @param  array<string, mixed>  $manifest
+     */
+    private function extractModpackOverrides(ZipArchive $zip, array $manifest, string $modsDir): int
+    {
+        $overridesCount = 0;
+        $overridesDir = trim((string) ($manifest['overrides'] ?? 'overrides'), '/\\');
+        if ($overridesDir === '') {
+            return 0;
+        }
+
+        $prefix = $overridesDir . '/mods/';
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entryName = str_replace('\\', '/', (string) $zip->getNameIndex($i));
+            if (!str_starts_with($entryName, $prefix) || str_ends_with($entryName, '/')) {
+                continue;
+            }
+            $relName = substr($entryName, strlen($prefix));
+            if ($relName === '' || str_contains($relName, '/') || str_contains($relName, '..')) {
+                continue;
+            }
+            if (!str_ends_with(strtolower($relName), '.jar')) {
+                continue;
+            }
+            $stream = $zip->getFromIndex($i);
+            if ($stream !== false) {
+                $safeName = $this->sanitizeJarFilename($relName);
+                $this->writeFileAtomically($modsDir . DIRECTORY_SEPARATOR . $safeName, $stream);
+                $overridesCount++;
+            }
+        }
+
+        return $overridesCount;
+    }
+
+    private function modpackSessionPath(string $sessionId): string
+    {
+        $safeId = preg_replace('/[^a-zA-Z0-9_-]/', '', $sessionId);
+        if ($safeId === null || $safeId === '') {
+            throw new CurseForgeException("Identifiant de session de modpack invalide.", 422);
+        }
+
+        return storage_path('app/cf-sessions/' . $safeId . '.json');
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function writeModpackSession(string $sessionId, array $data): void
+    {
+        $path = $this->modpackSessionPath($sessionId);
+        $dir = dirname($path);
+        if (!File::isDirectory($dir)) {
+            File::makeDirectory($dir, 0755, true);
+        }
+
+        $encoded = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($encoded === false || @file_put_contents($path, $encoded) === false) {
+            throw new CurseForgeException("Impossible d'enregistrer la session d'installation du modpack.", 500);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function readModpackSession(string $sessionId, Instance $instance): array
+    {
+        $path = $this->modpackSessionPath($sessionId);
+        if (!is_file($path)) {
+            throw new CurseForgeException("Session d'installation du modpack introuvable ou expirée.", 404);
+        }
+
+        $raw = @file_get_contents($path);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        if (!is_array($decoded)) {
+            throw new CurseForgeException("Fichier de session du modpack corrompu.", 500);
+        }
+
+        if ((int) ($decoded['instance_id'] ?? 0) !== (int) $instance->id) {
+            throw new CurseForgeException("Cette session n'appartient pas à l'instance active.", 403);
+        }
+
+        return $decoded;
     }
 
     /**
@@ -968,6 +1410,7 @@ class CurseForgeService
     {
         $instance->ensureDirectoriesExist();
         $modsDir = $this->modsDirectory($instance);
+        $this->cleanupResidualTmpFiles($modsDir);
 
         $diskFiles = [];
         if (is_dir($modsDir)) {
@@ -1234,10 +1677,12 @@ class CurseForgeService
             ->get();
 
         foreach ($linkedMods as $mod) {
-            $filePath = $modsDir . DIRECTORY_SEPARATOR . basename((string) $mod->file_name);
+            $baseFile = basename((string) $mod->file_name);
+            $filePath = $modsDir . DIRECTORY_SEPARATOR . $baseFile;
             if (is_file($filePath)) {
                 @unlink($filePath);
             }
+            $this->deleteLinkedOptionalMods($instance, (int) $mod->id, $baseFile);
             $mod->delete();
         }
 
@@ -1269,12 +1714,14 @@ class CurseForgeService
         }
 
         $modsDir = $this->modsDirectory($instance);
-        $filePath = $modsDir . DIRECTORY_SEPARATOR . basename($mod->file_name);
+        $baseFile = basename($mod->file_name);
+        $filePath = $modsDir . DIRECTORY_SEPARATOR . $baseFile;
 
         if (is_file($filePath)) {
             @unlink($filePath);
         }
 
+        $this->deleteLinkedOptionalMods($instance, (int) $mod->id, $baseFile);
         $mod->delete();
         $this->invalidateInstancePackageCache($instance);
     }
@@ -1300,6 +1747,7 @@ class CurseForgeService
         }
 
         @unlink($realCandidate);
+        $this->deleteLinkedOptionalMods($instance, null, $cleanName);
         $this->invalidateInstancePackageCache($instance);
     }
 
@@ -1673,8 +2121,9 @@ class CurseForgeService
     }
 
     /**
-     * Download a binary ZIP/JAR file with automatic CDN fallback (edge <-> mediafilez),
-     * ZIP/JAR "PK" signature validation, and atomic rename write.
+     * Download a binary ZIP/JAR file via zero-RAM disk streaming (Guzzle sink) into sys_get_temp_dir(),
+     * with automatic CDN fallback (edge <-> mediafilez), 2-byte ZIP/JAR "PK" signature validation,
+     * and atomic move (with cross-device copy+unlink fallback).
      *
      * @param  array<string, mixed>|null  $fileMeta
      */
@@ -1684,30 +2133,57 @@ class CurseForgeService
         $lastError = 'Téléchargement échoué.';
 
         foreach ($candidates as $candidateUrl) {
+            $tmpPath = tempnam(sys_get_temp_dir(), 'cf_dl_');
+            if ($tmpPath === false) {
+                throw new CurseForgeException("Impossible de créer un fichier temporaire dans le dossier temporaire système.", 500);
+            }
+
             try {
-                $response = Http::timeout(120)->get($candidateUrl);
+                $response = Http::timeout(180)->sink($tmpPath)->get($candidateUrl);
             } catch (\Throwable $e) {
+                @unlink($tmpPath);
                 $lastError = "Téléchargement échoué : " . $e->getMessage();
                 continue;
             }
 
             if (!$response->successful()) {
+                @unlink($tmpPath);
                 $lastError = "Téléchargement échoué (HTTP {$response->status()}).";
                 continue;
             }
 
-            $body = $response->body();
-            if ($body === '') {
+            clearstatcache(true, $tmpPath);
+            $size = is_file($tmpPath) ? (int) (@filesize($tmpPath) ?: 0) : 0;
+
+            // Compatibility safeguard for test fakes where sink may not populate the temp file
+            if ($size === 0) {
+                $fallbackBody = $response->body();
+                if ($fallbackBody !== '') {
+                    @file_put_contents($tmpPath, $fallbackBody);
+                    clearstatcache(true, $tmpPath);
+                    $size = (int) (@filesize($tmpPath) ?: 0);
+                }
+            }
+
+            if ($size <= 0) {
+                @unlink($tmpPath);
                 $lastError = "Le fichier téléchargé depuis CurseForge est vide.";
                 continue;
             }
 
-            if (substr($body, 0, 2) !== 'PK') {
+            $fp = @fopen($tmpPath, 'rb');
+            $magic = $fp !== false ? (string) @fread($fp, 2) : '';
+            if ($fp !== false) {
+                @fclose($fp);
+            }
+
+            if ($magic !== 'PK') {
+                @unlink($tmpPath);
                 $lastError = "Fichier binaire invalide ou corrompu (signature ZIP/JAR PK manquante).";
                 continue;
             }
 
-            $this->writeFileAtomically($destinationPath, $body);
+            $this->moveTempFileToDestination($tmpPath, $destinationPath);
 
             return;
         }
@@ -1760,21 +2236,116 @@ class CurseForgeService
 
     private function writeFileAtomically(string $destinationPath, string $contents): void
     {
+        $tmpPath = tempnam(sys_get_temp_dir(), 'cf_tmp_');
+        if ($tmpPath === false || @file_put_contents($tmpPath, $contents) === false) {
+            if ($tmpPath !== false) {
+                @unlink($tmpPath);
+            }
+            throw new CurseForgeException("Impossible d'écrire le fichier temporaire sur le disque.", 500);
+        }
+
+        $this->moveTempFileToDestination($tmpPath, $destinationPath);
+    }
+
+    private function moveTempFileToDestination(string $tmpPath, string $destinationPath): void
+    {
         $dir = dirname($destinationPath);
         if (!File::isDirectory($dir)) {
             File::makeDirectory($dir, 0755, true);
         }
 
-        $tmpPath = $destinationPath . '.tmp.' . uniqid('', true);
-        if (@file_put_contents($tmpPath, $contents) === false) {
+        if (!@rename($tmpPath, $destinationPath)) {
+            if (!@copy($tmpPath, $destinationPath)) {
+                @unlink($tmpPath);
+                throw new CurseForgeException("Impossible de finaliser l'écriture atomique du fichier sur le disque.", 500);
+            }
             @unlink($tmpPath);
-            throw new CurseForgeException("Impossible d'écrire le fichier temporaire sur le disque.", 500);
+        }
+    }
+
+    /**
+     * Remove any residual *.jar.tmp.* files left in mods/ from previous interrupted downloads.
+     */
+    public function cleanupResidualTmpFiles(string $modsDir): void
+    {
+        if (!is_dir($modsDir)) {
+            return;
         }
 
-        if (!@rename($tmpPath, $destinationPath)) {
-            @unlink($tmpPath);
-            throw new CurseForgeException("Impossible de finaliser l'écriture atomique du fichier sur le disque.", 500);
+        foreach (glob($modsDir . DIRECTORY_SEPARATOR . '*.jar.tmp.*') ?: [] as $tmpFile) {
+            if (is_file($tmpFile)) {
+                @unlink($tmpFile);
+            }
         }
+    }
+
+    private function syncOptionalModsOnModUpdate(
+        Instance $instance,
+        CurseForgeMod $record,
+        ?string $oldFileName,
+        ?string $oldLogoUrl
+    ): void {
+        if (!Schema::hasTable('mods')) {
+            return;
+        }
+
+        $newFileName = basename((string) $record->file_name);
+        $query = OptionsMods::query()->where('instance_id', $instance->id);
+        $query->where(static function ($q) use ($record, $oldFileName, $newFileName): void {
+            if (Schema::hasColumn('mods', 'curseforge_mod_id')) {
+                $q->where('curseforge_mod_id', $record->id);
+                $q->orWhere('file', $newFileName);
+            } else {
+                $q->where('file', $newFileName);
+            }
+            if ($oldFileName !== null && $oldFileName !== '' && $oldFileName !== $newFileName) {
+                $q->orWhere('file', $oldFileName);
+            }
+        });
+
+        $matching = $query->get();
+        foreach ($matching as $optionalMod) {
+            $optionalMod->file = $newFileName;
+            if (Schema::hasColumn('mods', 'curseforge_mod_id')) {
+                $optionalMod->curseforge_mod_id = $record->id;
+            }
+            if (!empty($record->logo_url) && (empty($optionalMod->icon) || $optionalMod->icon === $oldLogoUrl)) {
+                $optionalMod->icon = $record->logo_url;
+            }
+            $optionalMod->save();
+        }
+    }
+
+    private function deleteLinkedOptionalMods(Instance $instance, ?int $curseforgeModRecordId, ?string $fileName): void
+    {
+        if (!Schema::hasTable('mods')) {
+            return;
+        }
+
+        $cleanFile = $fileName !== null ? basename($fileName) : '';
+        if ($curseforgeModRecordId === null && $cleanFile === '') {
+            return;
+        }
+
+        $hasFkCol = Schema::hasColumn('mods', 'curseforge_mod_id');
+
+        OptionsMods::query()
+            ->where('instance_id', $instance->id)
+            ->where(static function ($q) use ($curseforgeModRecordId, $cleanFile, $hasFkCol): void {
+                $added = false;
+                if ($hasFkCol && $curseforgeModRecordId !== null) {
+                    $q->where('curseforge_mod_id', $curseforgeModRecordId);
+                    $added = true;
+                }
+                if ($cleanFile !== '') {
+                    if ($added) {
+                        $q->orWhere('file', $cleanFile);
+                    } else {
+                        $q->where('file', $cleanFile);
+                    }
+                }
+            })
+            ->delete();
     }
 
     private function sanitizeJarFilename(string $fileName): string

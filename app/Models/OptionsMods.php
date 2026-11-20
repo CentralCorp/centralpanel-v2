@@ -16,10 +16,11 @@ class OptionsMods extends Model
 
     protected $table = 'mods';
 
-    protected $fillable = ['instance_id', 'file', 'name', 'description', 'icon', 'optional', 'recommended'];
+    protected $fillable = ['instance_id', 'curseforge_mod_id', 'file', 'name', 'description', 'icon', 'optional', 'recommended'];
 
     protected $casts = [
         'instance_id' => 'integer',
+        'curseforge_mod_id' => 'integer',
         'optional' => 'boolean',
         'recommended' => 'boolean',
     ];
@@ -27,5 +28,10 @@ class OptionsMods extends Model
     public function instance(): BelongsTo
     {
         return $this->belongsTo(Instance::class, 'instance_id');
+    }
+
+    public function curseforgeMod(): BelongsTo
+    {
+        return $this->belongsTo(CurseForgeMod::class, 'curseforge_mod_id');
     }
 }

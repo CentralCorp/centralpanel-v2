@@ -126,8 +126,12 @@ class ModController extends Controller
             $modsFile = basename($mod->file);
             $iconUrl = '';
             if ($mod->icon) {
-                $rel = 'storage/' . ltrim($mod->icon, '/');
-                $iconUrl = $baseURL ? (rtrim($baseURL, '/') . '/' . $rel) : asset($rel);
+                if (str_starts_with($mod->icon, 'http://') || str_starts_with($mod->icon, 'https://')) {
+                    $iconUrl = $mod->icon;
+                } else {
+                    $rel = 'storage/' . ltrim($mod->icon, '/');
+                    $iconUrl = $baseURL ? (rtrim($baseURL, '/') . '/' . $rel) : asset($rel);
+                }
             }
 
             $entry = [

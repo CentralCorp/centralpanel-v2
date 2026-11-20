@@ -28,6 +28,7 @@ class AdminLoaderController extends Controller
             'loader_forge_version' => 'nullable|string|max:100',
             'loader_build_version' => 'nullable|string|max:100',
             'java_version' => 'nullable|integer|min:8|max:30',
+            'embedded_java' => 'nullable|boolean',
             'jvm_args_text' => 'nullable|string|max:4000',
             'game_args_text' => 'nullable|string|max:4000',
         ]);
@@ -42,6 +43,9 @@ class AdminLoaderController extends Controller
             'loader_build_version' => $validated['loader_build_version'] ?? $validated['loader_forge_version'] ?? null,
         ];
 
+        if ($request->has('embedded_java')) {
+            $updatePayload['embedded_java'] = $request->boolean('embedded_java');
+        }
         if ($request->has('java_version')) {
             $updatePayload['java_version'] = $validated['java_version'] ?? null;
         }
@@ -64,6 +68,12 @@ class AdminLoaderController extends Controller
                 'loader_forge_version' => $activeInstance->loader_forge_version,
                 'loader_build_version' => $activeInstance->loader_build_version,
             ]);
+
+            if ($request->has('embedded_java')) {
+                PanelOptions::general()->update([
+                    'embedded_java' => (bool) $activeInstance->embedded_java,
+                ]);
+            }
         }
 
         LauncherCache::flushMetadata();

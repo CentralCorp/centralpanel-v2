@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CurseForgeMod;
 use App\Models\OptionsMods;
 use App\Support\ActiveInstance;
 use App\Support\LauncherCache;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 class AdminModController extends Controller
@@ -21,21 +23,47 @@ class AdminModController extends Controller
             glob($modsDir . '/*.jar-disable') ?: []
         ) : [];
 
+        $modpackFileSet = [];
+        $individualCfMods = collect();
+
+        if (Schema::hasTable('curseforge_mods')) {
+            $modpackFileSet = CurseForgeMod::query()
+                ->where('instance_id', $activeInstance->id)
+                ->whereNotNull('modpack_id')
+                ->pluck('file_name')
+                ->map(static fn ($f): string => basename((string) $f))
+                ->flip()
+                ->all();
+
+            $individualCfMods = CurseForgeMod::query()
+                ->where('instance_id', $activeInstance->id)
+                ->whereNull('modpack_id')
+                ->get()
+                ->keyBy(static fn (CurseForgeMod $m): string => basename((string) $m->file_name));
+        }
+
         $seenFiles = [];
         $modsData = [];
 
         foreach ($jarFiles as $jarFile) {
             $baseName = preg_replace('/\.jar-disable$/', '.jar', basename($jarFile));
-            if (isset($seenFiles[$baseName])) {
+            if (isset($seenFiles[$baseName]) || isset($modpackFileSet[$baseName])) {
                 continue;
             }
             $seenFiles[$baseName] = true;
 
+            /** @var CurseForgeMod|null $cfMod */
+            $cfMod = $individualCfMods->get($baseName);
+
             $modsData[] = [
                 'file' => $baseName,
-                'name' => $baseName,
+                'name' => $cfMod ? (string) $cfMod->name : $baseName,
                 'description' => '',
-                'icon' => '',
+                'icon' => $cfMod && $cfMod->logo_url ? (string) $cfMod->logo_url : '',
+                'logo_url' => $cfMod ? $cfMod->logo_url : null,
+                'curseforge_mod_id' => $cfMod ? (int) $cfMod->id : null,
+                'is_curseforge' => $cfMod !== null,
+                'version' => $cfMod ? $cfMod->version : null,
                 'optional' => 0,
             ];
         }
@@ -78,7 +106,7 @@ class AdminModController extends Controller
         $mod->recommended = $request->boolean('optional_recommended');
 
         if ($request->hasFile('optional_image')) {
-            if ($mod->icon && Storage::disk('public')->exists($mod->icon)) {
+            if ($mod->icon && !self::isRemoteUrl($mod->icon) && Storage::disk('public')->exists($mod->icon)) {
                 Storage::disk('public')->delete($mod->icon);
             }
             $mod->icon = $request->file('optional_image')->store('mod_icon', 'public');
@@ -94,7 +122,7 @@ class AdminModController extends Controller
     {
         try {
             $mod = OptionsMods::findOrFail($id);
-            if ($mod->icon && Storage::disk('public')->exists($mod->icon)) {
+            if ($mod->icon && !self::isRemoteUrl($mod->icon) && Storage::disk('public')->exists($mod->icon)) {
                 Storage::disk('public')->delete($mod->icon);
             }
             $mod->delete();
@@ -112,20 +140,54 @@ class AdminModController extends Controller
             'file' => 'required|string|max:255',
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:2000',
+            'curseforge_mod_id' => 'nullable|integer|exists:curseforge_mods,id',
+            'icon_url' => 'nullable|url|max:512',
+            'optional_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
         ]);
 
         $activeInstance = ActiveInstance::current();
+        $fileName = basename((string) $validated['file']);
+
+        $linkedCfMod = null;
+        if (Schema::hasTable('curseforge_mods')) {
+            if (!empty($validated['curseforge_mod_id'])) {
+                $linkedCfMod = CurseForgeMod::query()
+                    ->where('id', (int) $validated['curseforge_mod_id'])
+                    ->where('instance_id', $activeInstance->id)
+                    ->whereNull('modpack_id')
+                    ->first();
+            }
+
+            if ($linkedCfMod === null) {
+                $linkedCfMod = CurseForgeMod::query()
+                    ->where('instance_id', $activeInstance->id)
+                    ->where('file_name', $fileName)
+                    ->whereNull('modpack_id')
+                    ->first();
+            }
+        }
+
+        $payload = [
+            'name' => $validated['name'],
+            'description' => $validated['description'] ?? '',
+            'optional' => true,
+            'curseforge_mod_id' => $linkedCfMod?->id,
+        ];
+
+        if ($request->hasFile('optional_image')) {
+            $payload['icon'] = $request->file('optional_image')->store('mod_icon', 'public');
+        } elseif (!empty($validated['icon_url'])) {
+            $payload['icon'] = (string) $validated['icon_url'];
+        } elseif ($linkedCfMod && !empty($linkedCfMod->logo_url)) {
+            $payload['icon'] = (string) $linkedCfMod->logo_url;
+        }
 
         OptionsMods::updateOrCreate(
             [
                 'instance_id' => $activeInstance->id,
-                'file' => $validated['file'],
+                'file' => $fileName,
             ],
-            [
-                'name' => $validated['name'],
-                'description' => $validated['description'] ?? '',
-                'optional' => true,
-            ]
+            $payload
         );
 
         LauncherCache::flush();
@@ -141,5 +203,14 @@ class AdminModController extends Controller
         }
 
         return response()->json($mod);
+    }
+
+    private static function isRemoteUrl(?string $value): bool
+    {
+        if ($value === null || $value === '') {
+            return false;
+        }
+
+        return str_starts_with($value, 'http://') || str_starts_with($value, 'https://');
     }
 }

@@ -120,7 +120,7 @@ class AdminInstanceController extends Controller
                 'loader_activation' => $request->boolean('loader_activation'),
                 'mods_enabled' => $request->boolean('mods_enabled', true),
                 'file_verification' => $request->boolean('file_verification', true),
-                'embedded_java' => $request->boolean('embedded_java', true),
+                'embedded_java' => $request->has('embedded_java') ? $request->boolean('embedded_java') : true,
                 'java_version' => $validated['java_version'] ?? null,
                 'jvm_args' => $this->parseArgsList($validated['jvm_args_text'] ?? ''),
                 'game_args' => $this->parseArgsList($validated['game_args_text'] ?? ''),

@@ -110,6 +110,19 @@
         </div>
     @endif
 
+    <div id="cf-modpack-progress" class="card shadow-sm border-primary mb-4 d-none">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="fw-semibold" id="cf-progress-title"></div>
+                <span class="badge bg-primary" id="cf-progress-counter">0 / 0</span>
+            </div>
+            <div class="progress mb-2" style="height: 12px;">
+                <div id="cf-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+            <div class="small text-muted text-truncate" id="cf-progress-file"></div>
+        </div>
+    </div>
+
     <div id="cf-feedback-zone"></div>
 
     {{-- Navigation Tabs --}}
@@ -314,6 +327,10 @@
         'confirm_delete_mod' => __('messages.curseforge.confirm_delete_mod'),
         'confirm_delete_external' => __('messages.curseforge.confirm_delete_external'),
         'modpack_install_details' => __('messages.curseforge.modpack_install_details'),
+        'progress_preparing' => __('messages.curseforge.progress_preparing'),
+        'progress_downloading' => __('messages.curseforge.progress_downloading'),
+        'progress_finalizing' => __('messages.curseforge.progress_finalizing'),
+        'progress_current_file' => __('messages.curseforge.progress_current_file'),
         'unit_mb' => __('messages.curseforge.unit_mb'),
         'unit_kb' => __('messages.curseforge.unit_kb'),
         'unit_b' => __('messages.curseforge.unit_b'),
@@ -337,6 +354,9 @@
         searchMods: @json(route('admin.curseforge.search.mods')),
         searchModpacks: @json(route('admin.curseforge.search.modpacks')),
         installMod: @json(route('admin.curseforge.mods.install')),
+        prepareModpack: @json(route('admin.curseforge.modpacks.prepare')),
+        installModpackBatch: @json(route('admin.curseforge.modpacks.install-batch')),
+        finalizeModpack: @json(route('admin.curseforge.modpacks.finalize')),
         installModpack: @json(route('admin.curseforge.modpacks.install')),
         modpacksBase: @json(url('admin/curseforge/modpacks')),
         checkUpdates: @json(route('admin.curseforge.updates.check')),
@@ -442,7 +462,7 @@
                     : `<div class="rounded bg-primary-subtle d-flex align-items-center justify-content-center" style="width:48px;height:48px;"><i class="bi bi-archive text-primary fs-5"></i></div>`;
 
                 const updateBtn = hasUpdate
-                    ? `<button type="button" class="btn btn-success btn-sm cf-update-modpack-btn" data-id="${pack.id}" data-file-id="${upd.latest_file_id || ''}" data-name="${escapeHtml(pack.name)}">
+                    ? `<button type="button" class="btn btn-success btn-sm cf-update-modpack-btn" data-id="${pack.id}" data-curseforge-modpack-id="${pack.curseforge_modpack_id}" data-file-id="${upd.latest_file_id || ''}" data-name="${escapeHtml(pack.name)}">
                            <i class="bi bi-cloud-arrow-down me-1"></i> ${escapeHtml(t('update_btn', { version: upd.latest_version || I18N.new_version }))}
                        </button>`
                     : '';
@@ -775,19 +795,107 @@
             return;
         }
 
+        const progressBox = document.getElementById('cf-modpack-progress');
+        const progressTitle = document.getElementById('cf-progress-title');
+        const progressCounter = document.getElementById('cf-progress-counter');
+        const progressBar = document.getElementById('cf-progress-bar');
+        const progressFile = document.getElementById('cf-progress-file');
+
+        function updateProgressUI(title, doneCount, totalCount, fileText = '') {
+            progressBox.classList.remove('d-none');
+            progressTitle.textContent = title;
+            progressCounter.textContent = `${doneCount} / ${totalCount}`;
+            const pct = totalCount > 0 ? Math.min(100, Math.round((doneCount / totalCount) * 100)) : 100;
+            progressBar.style.width = `${pct}%`;
+            progressBar.setAttribute('aria-valuenow', String(pct));
+            progressFile.textContent = fileText;
+        }
+
+        function hideProgressUI() {
+            progressBox.classList.add('d-none');
+            progressBar.style.width = '0%';
+            progressBar.setAttribute('aria-valuenow', '0');
+            progressFile.textContent = '';
+        }
+
+        async function runChunkedModpackFlow({ modpackId, fileId, existingModpackId, packName }) {
+            updateProgressUI(t('progress_preparing', { name: packName }), 0, 0, '');
+            progressBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            const prep = await apiRequest(routes.prepareModpack, {
+                method: 'POST',
+                body: JSON.stringify({
+                    modpack_id: modpackId || null,
+                    file_id: fileId || null,
+                    existing_modpack_id: existingModpackId || null,
+                }),
+            });
+
+            const sessionId = prep.session_id;
+            const total = Number(prep.total || 0);
+            const filesList = Array.isArray(prep.files) ? prep.files : [];
+            let offset = 0;
+            let done = total === 0;
+
+            updateProgressUI(
+                t('progress_downloading', { name: prep.modpack_name || packName }),
+                0,
+                total,
+                filesList[0] ? t('progress_current_file', { file: filesList[0].file_name }) : ''
+            );
+
+            while (!done) {
+                const nextFileName = filesList[offset] ? filesList[offset].file_name : '';
+                if (nextFileName) {
+                    updateProgressUI(
+                        t('progress_downloading', { name: prep.modpack_name || packName }),
+                        offset,
+                        total,
+                        t('progress_current_file', { file: nextFileName })
+                    );
+                }
+
+                const batchRes = await apiRequest(routes.installModpackBatch, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        session_id: sessionId,
+                        offset,
+                        limit: 2,
+                    }),
+                });
+
+                offset = Number(batchRes.next_offset || total);
+                done = Boolean(batchRes.done);
+                const lastFiles = Array.isArray(batchRes.current_files) ? batchRes.current_files : [];
+                updateProgressUI(
+                    t('progress_downloading', { name: prep.modpack_name || packName }),
+                    offset,
+                    total,
+                    lastFiles.length > 0 ? t('progress_current_file', { file: lastFiles[lastFiles.length - 1] }) : ''
+                );
+            }
+
+            updateProgressUI(t('progress_finalizing', { name: prep.modpack_name || packName }), total, total, '');
+
+            return apiRequest(routes.finalizeModpack, {
+                method: 'POST',
+                body: JSON.stringify({ session_id: sessionId }),
+            });
+        }
+
         const installPackBtn = e.target.closest('.cf-install-modpack-btn');
         if (installPackBtn) {
-            if (!confirm(t('confirm_install_modpack', { name: installPackBtn.dataset.name }))) return;
+            const packName = installPackBtn.dataset.name || 'Modpack';
+            if (!confirm(t('confirm_install_modpack', { name: packName }))) return;
             installPackBtn.disabled = true;
             const orig = installPackBtn.innerHTML;
             installPackBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${escapeHtml(I18N.installing_modpack)}`;
             try {
-                const res = await apiRequest(routes.installModpack, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        modpack_id: Number(installPackBtn.dataset.id),
-                        file_id: installPackBtn.dataset.fileId ? Number(installPackBtn.dataset.fileId) : null,
-                    }),
+                const res = await runChunkedModpackFlow({
+                    modpackId: Number(installPackBtn.dataset.id),
+                    fileId: installPackBtn.dataset.fileId ? Number(installPackBtn.dataset.fileId) : null,
+                    existingModpackId: null,
+                    packName,
                 });
                 const s = res.data || {};
                 const details = t('modpack_install_details', {
@@ -799,6 +907,7 @@
             } catch (err) {
                 showFeedback(err.message, 'danger');
             } finally {
+                hideProgressUI();
                 installPackBtn.disabled = false;
                 installPackBtn.innerHTML = orig;
             }
@@ -807,17 +916,19 @@
 
         const updatePackBtn = e.target.closest('.cf-update-modpack-btn');
         if (updatePackBtn) {
-            if (!confirm(t('confirm_update_modpack', { name: updatePackBtn.dataset.name }))) return;
+            const packName = updatePackBtn.dataset.name || 'Modpack';
+            if (!confirm(t('confirm_update_modpack', { name: packName }))) return;
             updatePackBtn.disabled = true;
             const orig = updatePackBtn.innerHTML;
             updatePackBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${escapeHtml(I18N.updating)}`;
             try {
-                const packId = updatePackBtn.dataset.id;
-                const res = await apiRequest(`${routes.modpacksBase}/${packId}/update`, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        file_id: updatePackBtn.dataset.fileId ? Number(updatePackBtn.dataset.fileId) : null,
-                    }),
+                const packId = Number(updatePackBtn.dataset.id);
+                const cfPackId = updatePackBtn.dataset.curseforgeModpackId ? Number(updatePackBtn.dataset.curseforgeModpackId) : null;
+                const res = await runChunkedModpackFlow({
+                    modpackId: cfPackId,
+                    fileId: updatePackBtn.dataset.fileId ? Number(updatePackBtn.dataset.fileId) : null,
+                    existingModpackId: packId,
+                    packName,
                 });
                 delete state.modpackUpdates[packId];
                 showFeedback(res.message, 'success');
@@ -826,6 +937,8 @@
                 showFeedback(err.message, 'danger');
                 updatePackBtn.disabled = false;
                 updatePackBtn.innerHTML = orig;
+            } finally {
+                hideProgressUI();
             }
             return;
         }

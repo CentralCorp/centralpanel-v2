@@ -22,7 +22,7 @@ class PanelOptions
         return OptionsGeneral::firstOrCreate([], [
             'mods_enabled' => true,
             'file_verification' => true,
-            'embedded_java' => false,
+            'embedded_java' => true,
             'game_folder_name' => 'centralcorp',
             'email_verified' => false,
             'auth_mode' => 'azuriom',

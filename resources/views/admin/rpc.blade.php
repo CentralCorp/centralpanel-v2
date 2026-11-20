@@ -4,6 +4,15 @@
 @section('page-title', __('messages.rpc.title'))
 
 @section('content')
+@if(isset($activeInstance))
+    <div class="alert alert-info d-flex justify-content-between align-items-center mb-3">
+        <span>
+            <i class="bi bi-layers me-2"></i>
+            {{ __('messages.rpc.active_instance_hint', ['name' => $activeInstance->name, 'slug' => $activeInstance->slug]) }}
+        </span>
+    </div>
+@endif
+
 <div class="card shadow-sm">
     <div class="card-body">
         <form action="{{ route('admin.rpc.update') }}" method="POST">
@@ -18,6 +27,31 @@
                     <label for="rpc_activation" class="form-check-label">{{ __('messages.rpc.enable_rpc') }}</label>
                 </div>
             </div>
+
+            @if(isset($activeInstance))
+                <div class="panel-muted-surface p-3 mb-4 border border-primary-subtle">
+                    <h2 class="panel-section-title">
+                        <i class="bi bi-layers"></i>{{ __('messages.rpc.instance_override_title', ['name' => $activeInstance->name]) }}
+                    </h2>
+                    <div class="alert alert-info py-2 px-3 small mb-3">
+                        <i class="bi bi-magic me-1"></i>{{ __('messages.rpc.instance_override_help', ['name' => $activeInstance->name]) }}
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="instance_rpc_details" class="form-label">{{ __('messages.rpc.instance_details') }}</label>
+                            <input type="text" class="form-control" id="instance_rpc_details" name="instance_rpc_details"
+                                   placeholder="{{ __('messages.rpc.instance_details_placeholder') }}"
+                                   value="{{ old('instance_rpc_details', $activeInstance->rpc_details) }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="instance_rpc_state" class="form-label">{{ __('messages.rpc.instance_state') }}</label>
+                            <input type="text" class="form-control" id="instance_rpc_state" name="instance_rpc_state"
+                                   placeholder="{{ __('messages.rpc.instance_state_placeholder') }}"
+                                   value="{{ old('instance_rpc_state', $activeInstance->rpc_state) }}">
+                        </div>
+                    </div>
+                </div>
+            @endif
 
             <div class="panel-muted-surface p-3 mb-4">
                 <h2 class="panel-section-title"><i class="bi bi-info-circle"></i>{{ __('messages.rpc.general_info') }}</h2>

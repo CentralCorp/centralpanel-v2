@@ -104,12 +104,37 @@
                     @forelse ($modsData as $mod)
                         @if (!in_array($mod['file'], $optionalFiles))
                             <div class="list-group-item d-flex justify-content-between align-items-center gap-3 px-0">
-                                <span class="text-break">{{ $mod['name'] }}</span>
-                                <form method="POST" action="{{ route('admin.mods.addOptional') }}">
+                                <div class="d-flex align-items-center gap-2 min-w-0">
+                                    @if (!empty($mod['logo_url']))
+                                        <img src="{{ $mod['logo_url'] }}" alt="" class="rounded flex-shrink-0" width="36" height="36" style="object-fit: cover;">
+                                    @else
+                                        <div class="rounded bg-secondary-subtle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 36px; height: 36px;">
+                                            <i class="bi bi-box-seam text-secondary"></i>
+                                        </div>
+                                    @endif
+                                    <div class="min-w-0">
+                                        <div class="fw-semibold text-break">
+                                            {{ $mod['name'] }}
+                                            @if (!empty($mod['is_curseforge']))
+                                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle ms-1">CurseForge</span>
+                                            @endif
+                                        </div>
+                                        @if ($mod['name'] !== $mod['file'])
+                                            <div class="small text-muted text-break"><code>{{ $mod['file'] }}</code></div>
+                                        @endif
+                                    </div>
+                                </div>
+                                <form method="POST" action="{{ route('admin.mods.addOptional') }}" class="flex-shrink-0">
                                     @csrf
                                     <input type="hidden" name="file" value="{{ $mod['file'] }}">
                                     <input type="hidden" name="name" value="{{ $mod['name'] }}">
                                     <input type="hidden" name="description" value="{{ $mod['description'] }}">
+                                    @if (!empty($mod['curseforge_mod_id']))
+                                        <input type="hidden" name="curseforge_mod_id" value="{{ $mod['curseforge_mod_id'] }}">
+                                    @endif
+                                    @if (!empty($mod['logo_url']))
+                                        <input type="hidden" name="icon_url" value="{{ $mod['logo_url'] }}">
+                                    @endif
                                     <button type="submit" class="btn btn-outline-primary btn-sm btn-icon">
                                         <i class="bi bi-plus-circle"></i>
                                         {{ __('messages.mods.add_optional') }}
@@ -173,7 +198,10 @@
                     recommendedCheckbox.checked = Boolean(data.recommended);
 
                     if (data.icon) {
-                        currentImage.src = `/storage/${data.icon}`;
+                        const iconVal = String(data.icon);
+                        currentImage.src = (iconVal.startsWith('http://') || iconVal.startsWith('https://'))
+                            ? iconVal
+                            : `/storage/${iconVal}`;
                         currentImage.classList.remove('d-none');
                     } else {
                         currentImage.classList.add('d-none');

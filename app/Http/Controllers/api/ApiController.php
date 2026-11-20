@@ -61,7 +61,9 @@ class ApiController extends Controller
                         $globalIgnored,
                         $azuriomUrl,
                         true,
-                        $panelBypassRoles
+                        $panelBypassRoles,
+                        $rpc,
+                        true
                     )
                 )->values()->all();
 
@@ -77,7 +79,8 @@ class ApiController extends Controller
                     $globalWhitelistRoles,
                     $globalIgnored,
                     $azuriomUrl,
-                    $panelBypassRoles
+                    $panelBypassRoles,
+                    $rpc
                 );
                 $instancePayloads = [$defaultPayload];
             }
@@ -213,6 +216,7 @@ class ApiController extends Controller
     private function computeInstancePayloads(string $baseURL): array
     {
         $general = OptionsGeneral::first();
+        $rpc = OptionsRPC::first();
         $azuriomUrl = $general?->azuriom_url;
         $panelBypassRoles = PanelRole::where('bypass_maintenance', true)->pluck('name')->all();
 
@@ -238,7 +242,9 @@ class ApiController extends Controller
                     $globalIgnored,
                     $azuriomUrl,
                     true,
-                    $panelBypassRoles
+                    $panelBypassRoles,
+                    $rpc,
+                    true
                 )
             )->values()->all();
         }
@@ -254,7 +260,8 @@ class ApiController extends Controller
                 $globalWhitelistRoles,
                 $globalIgnored,
                 $azuriomUrl,
-                $panelBypassRoles
+                $panelBypassRoles,
+                $rpc
             ),
         ];
     }
@@ -293,10 +300,12 @@ class ApiController extends Controller
         array $whitelistRoles,
         array $ignored,
         ?string $azuriomUrl = null,
-        array $panelBypassRoles = []
+        array $panelBypassRoles = [],
+        ?OptionsRPC $rpc = null
     ): array {
         $port = $server ? $server->server_port : 25566;
         $portValue = is_numeric($port) ? (int) $port : $port;
+        $instanceName = $server ? $server->server_name : 'Instance Principale';
 
         $bypassRoles = array_values(array_unique(array_merge(
             array_filter($security?->maintenance_bypass_roles ?? []),
@@ -306,7 +315,7 @@ class ApiController extends Controller
         return [
             'id' => 1,
             'slug' => 'default',
-            'name' => $server ? $server->server_name : 'Instance Principale',
+            'name' => $instanceName,
             'description' => null,
             'icon' => null,
             'background' => null,
@@ -337,6 +346,8 @@ class ApiController extends Controller
                 'build' => $loader ? (string) ($loader->loader_build_version ?? '1.7.10-10.13.4.1614-1.7.10') : '1.7.10-10.13.4.1614-1.7.10',
                 'enable' => $loader ? (bool) $loader->loader_activation : true,
             ],
+            'rpc_details' => str_replace('{instance}', (string) $instanceName, (string) ($rpc?->rpc_details ?? 'Dans le launcher')),
+            'rpc_state' => str_replace('{instance}', (string) $instanceName, (string) ($rpc?->rpc_state ?? 'En exploration')),
             'whitelist_activate' => $security ? (bool) $security->whitelist : false,
             'whitelist' => $whitelist,
             'whitelist_roles' => $whitelistRoles,

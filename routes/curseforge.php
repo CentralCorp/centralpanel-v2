@@ -10,6 +10,9 @@ Route::prefix('admin/curseforge')->middleware('auth')->name('admin.curseforge')-
     Route::get('/search/mods', [AdminCurseForgeController::class, 'searchMods'])->name('.search.mods');
     Route::get('/search/modpacks', [AdminCurseForgeController::class, 'searchModpacks'])->name('.search.modpacks');
     Route::post('/mods/install', [AdminCurseForgeController::class, 'installMod'])->name('.mods.install');
+    Route::post('/modpacks/prepare', [AdminCurseForgeController::class, 'prepareModpack'])->name('.modpacks.prepare');
+    Route::post('/modpacks/install-batch', [AdminCurseForgeController::class, 'installModpackBatch'])->name('.modpacks.install-batch');
+    Route::post('/modpacks/finalize', [AdminCurseForgeController::class, 'finalizeModpack'])->name('.modpacks.finalize');
     Route::post('/modpacks/install', [AdminCurseForgeController::class, 'installModpack'])->name('.modpacks.install');
     Route::post('/modpacks/{modpack}/update', [AdminCurseForgeController::class, 'updateModpack'])->name('.modpacks.update')->whereNumber('modpack');
     Route::delete('/modpacks/{modpack}', [AdminCurseForgeController::class, 'deleteModpack'])->name('.modpacks.delete')->whereNumber('modpack');

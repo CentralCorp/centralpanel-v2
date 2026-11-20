@@ -33,6 +33,10 @@ class Instance extends Model
 
     protected $table = 'instances';
 
+    protected $attributes = [
+        'embedded_java' => true,
+    ];
+
     protected $fillable = [
         'slug',
         'name',
@@ -63,6 +67,8 @@ class Instance extends Model
         'server_id',
         'whitelist_activate',
         'custom_data_dir',
+        'rpc_details',
+        'rpc_state',
     ];
 
     protected $casts = [
@@ -157,6 +163,15 @@ class Instance extends Model
         return $this->background_path ? asset('storage/' . ltrim($this->background_path, '/')) : null;
     }
 
+    public function resolveRpcText(?string $instanceOverride, ?string $globalFallback = null): string
+    {
+        $raw = ($instanceOverride !== null && trim($instanceOverride) !== '')
+            ? $instanceOverride
+            : (string) ($globalFallback ?? '');
+
+        return str_replace('{instance}', (string) $this->name, $raw);
+    }
+
     public function toLauncherArray(
         string $baseURL,
         ?OptionsServer $fallbackServer = null,
@@ -165,7 +180,9 @@ class Instance extends Model
         array $globalIgnored = [],
         ?string $azuriomUrl = null,
         bool $azuriomUrlResolved = false,
-        ?array $panelBypassRoles = null
+        ?array $panelBypassRoles = null,
+        ?OptionsRPC $rpc = null,
+        bool $rpcResolved = false
     ): array {
         return $this->toLauncherPayload(
             $baseURL,
@@ -175,7 +192,9 @@ class Instance extends Model
             $globalIgnored,
             $azuriomUrl,
             $azuriomUrlResolved,
-            $panelBypassRoles
+            $panelBypassRoles,
+            $rpc,
+            $rpcResolved
         );
     }
 
@@ -187,11 +206,14 @@ class Instance extends Model
         array $globalIgnored = [],
         ?string $azuriomUrl = null,
         bool $azuriomUrlResolved = false,
-        ?array $panelBypassRoles = null
+        ?array $panelBypassRoles = null,
+        ?OptionsRPC $rpc = null,
+        bool $rpcResolved = false
     ): array {
         $baseURL = rtrim($baseURL, '/');
         $server = $this->relationLoaded('server') ? $this->server : ($this->server_id ? $this->server()->first() : null);
         $server ??= $fallbackServer;
+        $resolvedRpc = $rpcResolved ? $rpc : ($rpc ?? OptionsRPC::first());
 
         $instanceWhitelist = $this->relationLoaded('whitelists')
             ? $this->whitelists->pluck('users')->filter()->all()
@@ -253,6 +275,8 @@ class Instance extends Model
                 'build' => (string) ($this->loader_build_version ?? $this->loader_forge_version ?? ''),
                 'enable' => (bool) $this->loader_activation,
             ],
+            'rpc_details' => $this->resolveRpcText($this->rpc_details, $resolvedRpc?->rpc_details ?? 'Dans le launcher'),
+            'rpc_state' => $this->resolveRpcText($this->rpc_state, $resolvedRpc?->rpc_state ?? 'En exploration'),
             'whitelist_activate' => (bool) $this->whitelist_activate,
             'whitelist' => $mergedWhitelist,
             'whitelist_roles' => $mergedWhitelistRoles,

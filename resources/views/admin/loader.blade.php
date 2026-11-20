@@ -43,11 +43,23 @@
 
                 <div class="col-12">
                     <div class="panel-muted-surface p-3">
-                        <div class="form-check form-switch">
-                            <input type="hidden" name="loader_activation" value="0">
-                            <input type="checkbox" class="form-check-input" id="loader-activation" name="loader_activation"
-                                   value="1" {{ old('loader_activation', $row->loader_activation ?? false) ? 'checked' : '' }}>
-                            <label class="form-check-label" for="loader-activation">{{ __('messages.loader.enable_loader') }}</label>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input type="hidden" name="loader_activation" value="0">
+                                    <input type="checkbox" class="form-check-input" id="loader-activation" name="loader_activation"
+                                           value="1" {{ old('loader_activation', $row->loader_activation ?? false) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="loader-activation">{{ __('messages.loader.enable_loader') }}</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input type="hidden" name="embedded_java" value="0">
+                                    <input type="checkbox" class="form-check-input" id="embedded-java" name="embedded_java"
+                                           value="1" {{ old('embedded_java', $row->embedded_java ?? true) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="embedded-java">{{ __('messages.instances.embedded_java') }}</label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

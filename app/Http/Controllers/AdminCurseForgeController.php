@@ -161,6 +161,94 @@ class AdminCurseForgeController extends Controller
         }
     }
 
+    public function prepareModpack(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'modpack_id' => 'required_without:existing_modpack_id|nullable|integer|min:1',
+            'file_id' => 'nullable|integer|min:1',
+            'existing_modpack_id' => 'nullable|integer|min:1',
+        ]);
+
+        $activeInstance = ActiveInstance::current();
+
+        try {
+            $result = $this->curseForge->prepareModpackInstall(
+                $activeInstance,
+                (int) ($validated['modpack_id'] ?? 0),
+                isset($validated['file_id']) ? (int) $validated['file_id'] : null,
+                isset($validated['existing_modpack_id']) ? (int) $validated['existing_modpack_id'] : null
+            );
+
+            return response()->json(array_merge(['status' => 'ok'], $result));
+        } catch (CurseForgeException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], $e->statusCode());
+        }
+    }
+
+    public function installModpackBatch(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'session_id' => 'required|string|max:100',
+            'offset' => 'nullable|integer|min:0',
+            'limit' => 'nullable|integer|min:1|max:5',
+        ]);
+
+        $activeInstance = ActiveInstance::current();
+
+        try {
+            $result = $this->curseForge->installModpackBatch(
+                $activeInstance,
+                (string) $validated['session_id'],
+                (int) ($validated['offset'] ?? 0),
+                (int) ($validated['limit'] ?? 2)
+            );
+
+            return response()->json(array_merge(['status' => 'ok'], $result));
+        } catch (CurseForgeException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], $e->statusCode());
+        }
+    }
+
+    public function finalizeModpack(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'session_id' => 'required|string|max:100',
+        ]);
+
+        $activeInstance = ActiveInstance::current();
+
+        try {
+            $summary = $this->curseForge->finalizeModpackInstall(
+                $activeInstance,
+                (string) $validated['session_id']
+            );
+
+            $flashKey = !empty($summary['is_update'])
+                ? 'messages.curseforge.flash_modpack_updated'
+                : 'messages.curseforge.flash_modpack_installed';
+
+            return response()->json([
+                'status' => 'ok',
+                'message' => __($flashKey, [
+                    'name' => $summary['modpack_name'],
+                    'count' => $summary['installed_count'],
+                ]),
+                'data' => $summary,
+            ]);
+        } catch (CurseForgeException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], $e->statusCode());
+        }
+    }
+
     public function installModpack(Request $request): JsonResponse
     {
         $validated = $request->validate([
