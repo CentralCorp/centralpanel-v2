@@ -101,60 +101,65 @@
                 </div>
             </div>
 
-            {{-- Azuriom Users & Roles (when configured) --}}
-            @if($hasAzuriomApi)
-                <div class="panel-muted-surface p-3 mb-4">
-                    <h2 class="panel-section-title"><i class="bi bi-people"></i>{{ __('messages.whitelist.azuriom_users') }}</h2>
+            {{-- Azuriom Users & Roles (only in Azuriom or Hybrid auth mode) --}}
+            @php
+                $showAzuriomWhitelist = in_array(($generalOptions->auth_mode ?? 'azuriom') ?: 'azuriom', ['azuriom', 'both'], true);
+            @endphp
+            @if($showAzuriomWhitelist)
+                @if($hasAzuriomApi)
+                    <div class="panel-muted-surface p-3 mb-4">
+                        <h2 class="panel-section-title"><i class="bi bi-people"></i>{{ __('messages.whitelist.azuriom_users') }}</h2>
 
-                    <div class="d-flex flex-wrap gap-2 mb-3">
-                        <button type="button" class="btn btn-outline-primary btn-icon" id="refreshUsersBtn">
-                            <i class="bi bi-arrow-clockwise"></i>
-                            {{ __('messages.common.refresh_list') }}
-                        </button>
-                        <span class="text-muted align-self-center small" id="usersCacheInfo"></span>
-                    </div>
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            <button type="button" class="btn btn-outline-primary btn-icon" id="refreshUsersBtn">
+                                <i class="bi bi-arrow-clockwise"></i>
+                                {{ __('messages.common.refresh_list') }}
+                            </button>
+                            <span class="text-muted align-self-center small" id="usersCacheInfo"></span>
+                        </div>
 
-                    <div class="mb-3">
-                        <input type="text" class="form-control" id="userSearchFilter"
-                               placeholder="{{ __('messages.whitelist.filter_users') }}" disabled>
-                    </div>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="userSearchFilter"
+                                   placeholder="{{ __('messages.whitelist.filter_users') }}" disabled>
+                        </div>
 
-                    <div id="usersListContainer" class="row scroll-panel">
-                        <div class="col-12 text-center text-muted py-4">
-                            <i class="bi bi-arrow-clockwise fs-1"></i>
-                            <p>{{ __('messages.whitelist.click_refresh') }}</p>
+                        <div id="usersListContainer" class="row scroll-panel">
+                            <div class="col-12 text-center text-muted py-4">
+                                <i class="bi bi-arrow-clockwise fs-1"></i>
+                                <p>{{ __('messages.whitelist.click_refresh') }}</p>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="panel-muted-surface p-3 mb-4">
-                    <h2 class="panel-section-title"><i class="bi bi-person-badge"></i>{{ __('messages.whitelist.azuriom_roles') }}</h2>
+                    <div class="panel-muted-surface p-3 mb-4">
+                        <h2 class="panel-section-title"><i class="bi bi-person-badge"></i>{{ __('messages.whitelist.azuriom_roles') }}</h2>
 
-                    <div class="d-flex flex-wrap gap-2 mb-3">
-                        <button type="button" class="btn btn-outline-primary btn-icon" id="refreshRolesBtn">
-                            <i class="bi bi-arrow-clockwise"></i>
-                            {{ __('messages.common.refresh_list') }}
-                        </button>
-                        <span class="text-muted align-self-center small" id="rolesCacheInfo"></span>
-                    </div>
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            <button type="button" class="btn btn-outline-primary btn-icon" id="refreshRolesBtn">
+                                <i class="bi bi-arrow-clockwise"></i>
+                                {{ __('messages.common.refresh_list') }}
+                            </button>
+                            <span class="text-muted align-self-center small" id="rolesCacheInfo"></span>
+                        </div>
 
-                    <div class="mb-3">
-                        <input type="text" class="form-control" id="roleSearchFilter"
-                               placeholder="{{ __('messages.whitelist.filter_roles') }}" disabled>
-                    </div>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="roleSearchFilter"
+                                   placeholder="{{ __('messages.whitelist.filter_roles') }}" disabled>
+                        </div>
 
-                    <div id="rolesListContainer" class="row scroll-panel-sm">
-                        <div class="col-12 text-center text-muted py-4">
-                            <i class="bi bi-arrow-clockwise fs-1"></i>
-                            <p>{{ __('messages.whitelist.click_refresh') }}</p>
+                        <div id="rolesListContainer" class="row scroll-panel-sm">
+                            <div class="col-12 text-center text-muted py-4">
+                                <i class="bi bi-arrow-clockwise fs-1"></i>
+                                <p>{{ __('messages.whitelist.click_refresh') }}</p>
+                            </div>
                         </div>
                     </div>
-                </div>
-            @else
-                <div class="alert alert-info">
-                    <i class="bi bi-info-circle me-2"></i>
-                    {{ __('messages.whitelist.api_not_configured') }}
-                </div>
+                @else
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        {{ __('messages.whitelist.api_not_configured') }}
+                    </div>
+                @endif
             @endif
 
             <button type="submit" class="btn btn-primary btn-icon">

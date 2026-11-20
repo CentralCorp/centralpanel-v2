@@ -10,7 +10,7 @@
             {{ __('messages.server.add_btn') }}
         </button>
 
-        @if(!empty($options?->azuriom_url))
+        @if(in_array(($options?->auth_mode ?? 'azuriom') ?: 'azuriom', ['azuriom', 'both'], true) && !empty($options?->azuriom_url))
             <form method="POST" action="{{ route('admin.server.sync') }}" data-loading-label="{{ __('messages.common.loading') }}">
                 @csrf
                 <button type="submit" class="btn btn-outline-primary btn-icon">

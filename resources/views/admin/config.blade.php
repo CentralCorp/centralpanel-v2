@@ -70,14 +70,11 @@
                 </div>
             </div>
 
-            <div class="panel-muted-surface p-3 mb-4" id="azuriomConfigGroup">
+            <div class="panel-muted-surface p-3 mb-4 {{ $requiresAzuriom ? '' : 'd-none' }}" id="azuriomConfigGroup">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h3 class="h6 fw-semibold mb-0">
                         <i class="bi bi-globe me-2"></i>{{ __('messages.config.azuriom_section') }}
                     </h3>
-                    <span class="badge text-bg-secondary {{ $requiresAzuriom ? 'd-none' : '' }}" id="azuriomOptionalBadge">
-                        {{ __('messages.config.azuriom_optional_hint') }}
-                    </span>
                 </div>
 
                 <div class="mb-3">
@@ -110,16 +107,16 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const authModeSelect = document.getElementById('auth_mode');
+    const azuriomConfigGroup = document.getElementById('azuriomConfigGroup');
     const azuriomUrl = document.getElementById('azuriom_url');
     const azuriomApiKey = document.getElementById('azuriom_api_key');
-    const optionalBadge = document.getElementById('azuriomOptionalBadge');
 
     function syncAuthRequirements() {
         const mode = authModeSelect.value;
         const requiresAzuriom = (mode === 'azuriom' || mode === 'both');
+        azuriomConfigGroup.classList.toggle('d-none', !requiresAzuriom);
         azuriomUrl.required = requiresAzuriom;
         azuriomApiKey.required = requiresAzuriom;
-        optionalBadge.classList.toggle('d-none', requiresAzuriom);
     }
 
     authModeSelect.addEventListener('change', syncAuthRequirements);

@@ -13,14 +13,15 @@
                 <h2 class="panel-section-title"><i class="bi bi-toggles"></i>{{ __('messages.general.features') }}</h2>
                 <div class="row row-cols-1 row-cols-md-2 g-3">
                     @php
-                        $switches = [
+                        $showAzuriomOptions = in_array($options->auth_mode ?: 'azuriom', ['azuriom', 'both'], true);
+                        $switches = array_values(array_filter([
                             ['id' => 'mods_enabled', 'label' => __('messages.general.mods_enabled')],
                             ['id' => 'file_verification', 'label' => __('messages.general.file_verification')],
                             ['id' => 'embedded_java', 'label' => __('messages.general.embedded_java')],
-                            ['id' => 'email_verified', 'label' => __('messages.general.email_verified')],
+                            $showAzuriomOptions ? ['id' => 'email_verified', 'label' => __('messages.general.email_verified')] : null,
                             ['id' => 'role_display', 'label' => __('messages.general.role_display')],
                             ['id' => 'money_display', 'label' => __('messages.general.money_display')],
-                        ];
+                        ]));
                     @endphp
 
                     @foreach ($switches as $switch)
