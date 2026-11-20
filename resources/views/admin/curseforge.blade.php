@@ -276,10 +276,8 @@
 @endsection
 
 @push('scripts')
-<script>
-(function () {
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-    const I18N = @json([
+@php
+    $cfI18n = [
         'close' => __('messages.common.close'),
         'section_modpacks_empty' => __('messages.curseforge.section_modpacks_empty'),
         'section_mods_empty' => __('messages.curseforge.section_mods_empty'),
@@ -319,7 +317,12 @@
         'unit_mb' => __('messages.curseforge.unit_mb'),
         'unit_kb' => __('messages.curseforge.unit_kb'),
         'unit_b' => __('messages.curseforge.unit_b'),
-    ]);
+    ];
+@endphp
+<script>
+(function () {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    const I18N = @json($cfI18n);
 
     function t(key, params = {}) {
         let str = I18N[key] || key;
