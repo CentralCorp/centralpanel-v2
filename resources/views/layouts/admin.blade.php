@@ -49,6 +49,7 @@
         ],
         __('messages.sidebar.client') => [
             ['route' => 'admin.instances', 'icon' => 'bi-layers', 'label' => __('messages.sidebar.instances'), 'match' => 'admin.instances*'],
+            ['route' => 'admin.curseforge', 'icon' => 'bi-fire', 'label' => 'CurseForge / Mods', 'match' => 'admin.curseforge*'],
             ['route' => 'admin.mods', 'icon' => 'bi-box-seam', 'label' => __('messages.sidebar.optional_mods'), 'match' => 'admin.mods*'],
             ['route' => 'admin.loader', 'icon' => 'bi-cloud-arrow-down', 'label' => __('messages.sidebar.loader'), 'match' => 'admin.loader*'],
             ['route' => 'admin.ignore', 'icon' => 'bi-slash-circle', 'label' => __('messages.sidebar.ignore'), 'match' => 'admin.ignore*'],

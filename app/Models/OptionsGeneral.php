@@ -24,6 +24,7 @@ class OptionsGeneral extends Model
         'money_display',
         'azuriom_url',
         'azuriom_api_key',
+        'curseforge_api_key',
         'microsoft_client_id',
         'news_source',
         'min_ram',

@@ -59,6 +59,9 @@ Route::prefix('admin')->middleware('auth')->group(function () {
 
     Route::get('/players', [AdminPlayerController::class, 'index'])->name('admin.players');
     Route::post('/players', [AdminPlayerController::class, 'store'])->name('admin.players.store');
+    Route::post('/players/api/toggle', [AdminPlayerController::class, 'toggleApi'])->name('admin.players.api.toggle');
+    Route::post('/players/api/tokens', [AdminPlayerController::class, 'storeToken'])->name('admin.players.api.tokens.store');
+    Route::delete('/players/api/tokens/{token}', [AdminPlayerController::class, 'destroyToken'])->name('admin.players.api.tokens.destroy');
     Route::put('/players/{player}', [AdminPlayerController::class, 'update'])->name('admin.players.update');
     Route::post('/players/{player}/ban', [AdminPlayerController::class, 'toggleBan'])->name('admin.players.toggleBan');
     Route::delete('/players/{player}', [AdminPlayerController::class, 'destroy'])->name('admin.players.destroy');
@@ -110,6 +113,9 @@ Route::prefix('admin')->middleware('auth')->group(function () {
     Route::post('/loader/update', [AdminLoaderController::class, 'update'])->name('admin.loader.update');
     Route::get('/loader/builds', [AdminLoaderController::class, 'getForgeBuilds'])->name('admin.loader.builds');
     Route::get('/loader/fabric-versions', [AdminLoaderController::class, 'getFabricVersions'])->name('admin.loader.fabric-versions');
+    Route::get('/loader/neoforge-versions', [AdminLoaderController::class, 'getNeoForgeVersions'])->name('admin.loader.neoforge-versions');
+    Route::get('/loader/quilt-versions', [AdminLoaderController::class, 'getQuiltVersions'])->name('admin.loader.quilt-versions');
+    Route::get('/loader/legacyfabric-versions', [AdminLoaderController::class, 'getLegacyFabricVersions'])->name('admin.loader.legacyfabric-versions');
 
     Route::get('/rpc', [AdminRpcController::class, 'show'])->name('admin.rpc');
     Route::post('/rpc/update', [AdminRpcController::class, 'update'])->name('admin.rpc.update');
@@ -153,3 +159,6 @@ Route::prefix('utils')->group(function () {
 
 Route::get('/data', [FileController::class, 'getFiles']);
 Route::get('lang/{locale}', [App\Http\Controllers\LanguageController::class, 'switch'])->name('lang.switch');
+
+require __DIR__ . '/curseforge.php';
+
