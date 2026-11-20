@@ -1327,7 +1327,6 @@ class CurseForgeService
             ->acceptJson()
             ->withHeaders([
                 'x-api-key' => $apiKey,
-                'User-Agent' => 'CentralCorp-Panel/2.0',
             ]);
     }
 
