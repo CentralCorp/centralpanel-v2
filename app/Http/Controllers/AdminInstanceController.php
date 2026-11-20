@@ -52,7 +52,7 @@ class AdminInstanceController extends Controller
             'is_default' => 'boolean',
             'is_enabled' => 'boolean',
             'position' => 'nullable|integer|min:0|max:9999',
-            'minecraft_version' => 'required|string|max:50',
+            'minecraft_version' => 'nullable|string|max:50',
             'loader_activation' => 'boolean',
             'loader_type' => 'nullable|string|in:forge,fabric,legacyfabric,neoForge,neoforge,quilt',
             'loader_build_version' => 'nullable|string|max:100',
@@ -63,8 +63,8 @@ class AdminInstanceController extends Controller
             'jvm_args_text' => 'nullable|string|max:4000',
             'game_args_text' => 'nullable|string|max:4000',
             'auto_connect' => 'boolean',
-            'min_ram' => 'required|integer|min:512|max:65536',
-            'max_ram' => 'required|integer|min:512|max:65536|gte:min_ram',
+            'min_ram' => 'nullable|integer|min:512|max:65536',
+            'max_ram' => 'nullable|integer|min:512|max:65536' . ($request->filled('min_ram') ? '|gte:min_ram' : ''),
             'server_id' => 'nullable|integer|exists:options_server,id',
             'whitelist_activate' => 'boolean',
             'maintenance' => 'boolean',
@@ -89,10 +89,13 @@ class AdminInstanceController extends Controller
         );
         $bypassUsers = $this->parseDelimitedList($validated['maintenance_bypass_users_text'] ?? '');
 
+        $minRam = (int) ($validated['min_ram'] ?? 2048);
+        $maxRam = (int) ($validated['max_ram'] ?? max(4096, $minRam));
+
         $isFirst = Instance::count() === 0;
         $makeDefault = $isFirst || $request->boolean('is_default');
 
-        $instance = DB::transaction(function () use ($validated, $slug, $iconPath, $bgPath, $bypassRoles, $bypassUsers, $makeDefault, $request) {
+        $instance = DB::transaction(function () use ($validated, $slug, $iconPath, $bgPath, $bypassRoles, $bypassUsers, $minRam, $maxRam, $makeDefault, $request) {
             if ($makeDefault) {
                 Instance::where('is_default', true)->update(['is_default' => false]);
             }
@@ -110,8 +113,8 @@ class AdminInstanceController extends Controller
                 'maintenance_message' => $validated['maintenance_message'] ?? null,
                 'maintenance_bypass_roles' => $bypassRoles,
                 'maintenance_bypass_users' => $bypassUsers,
-                'minecraft_version' => $validated['minecraft_version'],
-                'loader_type' => $validated['loader_type'] ?? 'forge',
+                'minecraft_version' => !empty($validated['minecraft_version']) ? $validated['minecraft_version'] : '1.20.1',
+                'loader_type' => !empty($validated['loader_type']) ? $validated['loader_type'] : 'forge',
                 'loader_build_version' => $validated['loader_build_version'] ?? null,
                 'loader_forge_version' => $validated['loader_build_version'] ?? null,
                 'loader_activation' => $request->boolean('loader_activation'),
@@ -122,8 +125,8 @@ class AdminInstanceController extends Controller
                 'jvm_args' => $this->parseArgsList($validated['jvm_args_text'] ?? ''),
                 'game_args' => $this->parseArgsList($validated['game_args_text'] ?? ''),
                 'auto_connect' => $request->boolean('auto_connect'),
-                'min_ram' => (int) $validated['min_ram'],
-                'max_ram' => (int) $validated['max_ram'],
+                'min_ram' => $minRam,
+                'max_ram' => $maxRam,
                 'server_id' => $validated['server_id'] ?? null,
                 'whitelist_activate' => $request->boolean('whitelist_activate'),
                 'custom_data_dir' => 'instances/' . $slug,
