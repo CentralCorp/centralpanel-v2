@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exceptions\CurseForgeException;
 use App\Models\CurseForgeMod;
+use App\Models\CurseForgeModpack;
 use App\Services\CurseForgeService;
 use App\Support\ActiveInstance;
 use Illuminate\Http\JsonResponse;
@@ -49,20 +50,19 @@ class AdminCurseForgeController extends Controller
         $this->curseForge->saveApiKey($validated['curseforge_api_key'] ?? null);
         $configured = $this->curseForge->hasApiKey();
 
+        $msg = $configured
+            ? __('messages.curseforge.flash_api_key_saved')
+            : __('messages.curseforge.flash_api_key_cleared');
+
         if ($request->expectsJson()) {
             return response()->json([
                 'status' => 'ok',
                 'has_api_key' => $configured,
-                'message' => $configured
-                    ? 'Clé API CurseForge enregistrée avec succès.'
-                    : 'Clé API CurseForge effacée.',
+                'message' => $msg,
             ]);
         }
 
-        return redirect()->back()->with(
-            'success',
-            $configured ? 'Clé API CurseForge enregistrée avec succès.' : 'Clé API CurseForge effacée.'
-        );
+        return redirect()->back()->with('success', $msg);
     }
 
     public function installed(): JsonResponse
@@ -150,7 +150,7 @@ class AdminCurseForgeController extends Controller
 
             return response()->json([
                 'status' => 'ok',
-                'message' => "Mod '{$result['mod']['name']}' installé avec succès.",
+                'message' => __('messages.curseforge.flash_mod_installed', ['name' => $result['mod']['name']]),
                 'data' => $result,
             ]);
         } catch (CurseForgeException $e) {
@@ -179,8 +179,64 @@ class AdminCurseForgeController extends Controller
 
             return response()->json([
                 'status' => 'ok',
-                'message' => "Modpack '{$summary['modpack_name']}' installé ({$summary['installed_count']} mod(s) installés).",
+                'message' => __('messages.curseforge.flash_modpack_installed', [
+                    'name' => $summary['modpack_name'],
+                    'count' => $summary['installed_count'],
+                ]),
                 'data' => $summary,
+            ]);
+        } catch (CurseForgeException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], $e->statusCode());
+        }
+    }
+
+    public function updateModpack(Request $request, int $modpack): JsonResponse
+    {
+        $validated = $request->validate([
+            'file_id' => 'nullable|integer|min:1',
+        ]);
+
+        $activeInstance = ActiveInstance::current();
+        $record = CurseForgeModpack::findOrFail($modpack);
+
+        try {
+            $summary = $this->curseForge->updateModpack(
+                $activeInstance,
+                $record,
+                isset($validated['file_id']) ? (int) $validated['file_id'] : null
+            );
+
+            return response()->json([
+                'status' => 'ok',
+                'message' => __('messages.curseforge.flash_modpack_updated', [
+                    'name' => $summary['modpack_name'],
+                    'count' => $summary['installed_count'],
+                ]),
+                'data' => $summary,
+            ]);
+        } catch (CurseForgeException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], $e->statusCode());
+        }
+    }
+
+    public function deleteModpack(int $modpack): JsonResponse
+    {
+        $activeInstance = ActiveInstance::current();
+        $record = CurseForgeModpack::findOrFail($modpack);
+
+        try {
+            $name = $record->name;
+            $this->curseForge->deleteModpack($activeInstance, $record);
+
+            return response()->json([
+                'status' => 'ok',
+                'message' => __('messages.curseforge.flash_modpack_deleted', ['name' => $name]),
             ]);
         } catch (CurseForgeException $e) {
             return response()->json([
@@ -195,11 +251,12 @@ class AdminCurseForgeController extends Controller
         $activeInstance = ActiveInstance::current();
 
         try {
-            $updates = $this->curseForge->checkUpdates($activeInstance);
+            $result = $this->curseForge->checkUpdates($activeInstance);
 
             return response()->json([
                 'status' => 'ok',
-                'updates' => $updates,
+                'updates' => $result['updates'],
+                'modpack_updates' => $result['modpack_updates'],
             ]);
         } catch (CurseForgeException $e) {
             return response()->json([
@@ -227,7 +284,7 @@ class AdminCurseForgeController extends Controller
 
             return response()->json([
                 'status' => 'ok',
-                'message' => "Mod '{$result['mod']['name']}' mis à jour avec succès.",
+                'message' => __('messages.curseforge.flash_mod_updated', ['name' => $result['mod']['name']]),
                 'data' => $result,
             ]);
         } catch (CurseForgeException $e) {
@@ -249,7 +306,7 @@ class AdminCurseForgeController extends Controller
 
             return response()->json([
                 'status' => 'ok',
-                'message' => "Mod '{$name}' supprimé.",
+                'message' => __('messages.curseforge.flash_mod_deleted', ['name' => $name]),
             ]);
         } catch (CurseForgeException $e) {
             return response()->json([
@@ -272,7 +329,7 @@ class AdminCurseForgeController extends Controller
 
             return response()->json([
                 'status' => 'ok',
-                'message' => "Mod externe '{$validated['file_name']}' supprimé.",
+                'message' => __('messages.curseforge.flash_external_deleted', ['name' => $validated['file_name']]),
             ]);
         } catch (CurseForgeException $e) {
             return response()->json([
@@ -322,7 +379,7 @@ class AdminCurseForgeController extends Controller
 
             return response()->json([
                 'status' => 'ok',
-                'message' => "Mod '{$record['name']}' converti vers CurseForge avec succès.",
+                'message' => __('messages.curseforge.flash_external_reconciled', ['name' => $record['name']]),
                 'data' => $record,
             ]);
         } catch (CurseForgeException $e) {

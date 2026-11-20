@@ -14,6 +14,7 @@ class CurseForgeMod extends Model
 
     protected $fillable = [
         'instance_id',
+        'modpack_id',
         'curseforge_mod_id',
         'curseforge_file_id',
         'name',
@@ -29,6 +30,7 @@ class CurseForgeMod extends Model
 
     protected $casts = [
         'instance_id' => 'integer',
+        'modpack_id' => 'integer',
         'curseforge_mod_id' => 'integer',
         'curseforge_file_id' => 'integer',
         'fingerprint' => 'integer',
@@ -37,5 +39,10 @@ class CurseForgeMod extends Model
     public function instance(): BelongsTo
     {
         return $this->belongsTo(Instance::class, 'instance_id');
+    }
+
+    public function modpack(): BelongsTo
+    {
+        return $this->belongsTo(CurseForgeModpack::class, 'modpack_id');
     }
 }

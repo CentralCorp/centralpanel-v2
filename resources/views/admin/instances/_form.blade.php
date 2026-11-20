@@ -18,13 +18,13 @@
                     <div class="col-md-6">
                         <label for="name" class="form-label">{{ __('messages.instances.name') }}</label>
                         <input type="text" class="form-control" id="name" name="name"
-                               value="{{ old('name', $instance->name ?? '') }}" required placeholder="Survie Moddée">
+                               value="{{ old('name', $instance->name ?? '') }}" required placeholder="{{ __('messages.instances.name_placeholder') }}">
                     </div>
 
                     <div class="col-md-6">
                         <label for="slug" class="form-label">{{ __('messages.instances.slug') }}</label>
                         <input type="text" class="form-control font-monospace" id="slug" name="slug"
-                               value="{{ old('slug', $instance->slug ?? '') }}" placeholder="survie-moddee">
+                               value="{{ old('slug', $instance->slug ?? '') }}" placeholder="{{ __('messages.instances.slug_placeholder') }}">
                         <div class="form-text">{{ __('messages.instances.slug_help') }}</div>
                     </div>
 

@@ -364,14 +364,14 @@
                             'badge' => 'text-bg-danger',
                             'path' => '/{uuid_or_username}/ban',
                             'ability' => 'players:ban',
-                            'desc' => 'Bannit un joueur (permanent ou temporaire via duration en secondes ou expires_at ISO8601).',
-                            'payload' => "{\n  \"reason\": \"Comportement inapproprié\",\n  \"duration\": 3600\n}",
+                            'desc' => __('messages.players.api_docs_ep_ban_desc'),
+                            'payload' => "{\n  \"reason\": \"Rule violation\",\n  \"duration\": 3600\n}",
                             'fields' => [
-                                ['reason', 'string (optionnel)', 'Raison du bannissement (défaut : "Banned via API").'],
-                                ['duration', 'integer (optionnel)', 'Durée en secondes (>= 1). Prioritaire sur expires_at.'],
-                                ['expires_at', 'ISO8601 (optionnel)', 'Date de fin du ban dans le futur (ex: 2026-12-31T23:59:59Z).'],
+                                ['reason', __('messages.players.api_docs_ep_ban_reason_type'), __('messages.players.api_docs_ep_ban_reason_desc')],
+                                ['duration', __('messages.players.api_docs_ep_ban_duration_type'), __('messages.players.api_docs_ep_ban_duration_desc')],
+                                ['expires_at', __('messages.players.api_docs_ep_ban_expires_type'), __('messages.players.api_docs_ep_ban_expires_desc')],
                             ],
-                            'curl' => "curl -X POST \"{$apiBaseUrl}/Notch/ban\" \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"reason\":\"Triche détectée\",\"duration\":3600}'",
+                            'curl' => "curl -X POST \"{$apiBaseUrl}/Notch/ban\" \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"reason\":\"Cheating detected\",\"duration\":3600}'",
                         ],
                         [
                             'id' => 'unban',
@@ -379,7 +379,7 @@
                             'badge' => 'text-bg-success',
                             'path' => '/{uuid_or_username}/unban',
                             'ability' => 'players:unban',
-                            'desc' => 'Lève immédiatement le bannissement du joueur (efface la raison et la date d\'expiration).',
+                            'desc' => __('messages.players.api_docs_ep_unban_desc'),
                             'payload' => '{}',
                             'fields' => [],
                             'curl' => "curl -X POST \"{$apiBaseUrl}/Notch/unban\" \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -H \"Content-Type: application/json\"",
@@ -390,11 +390,11 @@
                             'badge' => 'text-bg-primary',
                             'path' => '/{uuid_or_username}/role',
                             'ability' => 'players:role',
-                            'desc' => 'Assigne un rôle Panel existant (par ID ou nom) ou retire le rôle avec role_id: null.',
+                            'desc' => __('messages.players.api_docs_ep_role_desc'),
                             'payload' => "{\n  \"role\": \"VIP\"\n}",
                             'fields' => [
-                                ['role_id', 'integer|null', 'ID du PanelRole à assigner, ou null pour retirer le rôle.'],
-                                ['role', 'string|null', 'Nom du PanelRole (insensible à la casse), alternatif à role_id.'],
+                                ['role_id', 'integer|null', __('messages.players.api_docs_ep_role_id_desc')],
+                                ['role', 'string|null', __('messages.players.api_docs_ep_role_name_desc')],
                             ],
                             'curl' => "curl -X PATCH \"{$apiBaseUrl}/Notch/role\" \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"role\":\"VIP\"}'",
                         ],
@@ -404,11 +404,11 @@
                             'badge' => 'text-bg-warning',
                             'path' => '/{uuid_or_username}/points',
                             'ability' => 'players:points',
-                            'desc' => 'Modifie les points / monnaie du joueur (set, add, remove sans jamais descendre sous 0).',
+                            'desc' => __('messages.players.api_docs_ep_points_desc'),
                             'payload' => "{\n  \"action\": \"add\",\n  \"amount\": 100\n}",
                             'fields' => [
-                                ['action', 'string (requis)', 'Opération : "set", "add" ou "remove".'],
-                                ['amount', 'integer (requis)', 'Montant entier positif ou nul (>= 0).'],
+                                ['action', __('messages.players.api_docs_ep_points_action_type'), __('messages.players.api_docs_ep_points_action_desc')],
+                                ['amount', __('messages.players.api_docs_ep_points_amount_type'), __('messages.players.api_docs_ep_points_amount_desc')],
                             ],
                             'curl' => "curl -X PATCH \"{$apiBaseUrl}/Notch/points\" \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"action\":\"add\",\"amount\":100}'",
                         ],
@@ -436,9 +436,9 @@
                                             <table class="table table-sm table-bordered mb-0">
                                                 <thead>
                                                     <tr>
-                                                        <th>Champ</th>
-                                                        <th>Type</th>
-                                                        <th>Description</th>
+                                                        <th>{{ __('messages.players.api_docs_field') }}</th>
+                                                        <th>{{ __('messages.players.api_docs_type') }}</th>
+                                                        <th>{{ __('messages.players.api_docs_description') }}</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -456,12 +456,12 @@
 
                                     <div class="row g-3">
                                         <div class="col-md-5">
-                                            <div class="small fw-semibold mb-1">Payload JSON</div>
+                                            <div class="small fw-semibold mb-1">{{ __('messages.players.api_docs_payload_json') }}</div>
                                             <pre class="bg-dark text-light p-3 rounded small mb-0"><code>{{ $ep['payload'] }}</code></pre>
                                         </div>
                                         <div class="col-md-7">
                                             <div class="d-flex justify-content-between align-items-center mb-1">
-                                                <span class="small fw-semibold">Exemple cURL</span>
+                                                <span class="small fw-semibold">{{ __('messages.players.api_docs_curl_example') }}</span>
                                                 <button type="button" class="btn btn-sm btn-outline-secondary btn-copy-snippet"
                                                         data-copy-target="#curl_{{ $ep['id'] }}">
                                                     <i class="bi bi-clipboard me-1"></i>{{ __('messages.players.api_copy') }}
@@ -481,17 +481,17 @@
                     <table class="table table-sm table-bordered mb-0">
                         <thead>
                             <tr>
-                                <th>Code</th>
-                                <th>Signification</th>
+                                <th>{{ __('messages.players.api_docs_code') }}</th>
+                                <th>{{ __('messages.players.api_docs_meaning') }}</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr><td><span class="badge text-bg-success">200</span></td><td class="small">Succès : le joueur a été mis à jour et ses données actualisées sont retournées en JSON.</td></tr>
-                            <tr><td><span class="badge text-bg-danger">401</span></td><td class="small">Token Bearer manquant, invalide ou expiré.</td></tr>
-                            <tr><td><span class="badge text-bg-danger">403</span></td><td class="small">Le token ne possède pas la permission requise pour cet endpoint.</td></tr>
-                            <tr><td><span class="badge text-bg-warning">404</span></td><td class="small">Joueur introuvable pour l'UUID ou le pseudo fourni.</td></tr>
-                            <tr><td><span class="badge text-bg-warning">422</span></td><td class="small">Erreur de validation du payload JSON ou rôle inexistant.</td></tr>
-                            <tr><td><span class="badge text-bg-secondary">503</span></td><td class="small">L'API Externe Joueurs est actuellement désactivée dans le panel.</td></tr>
+                            <tr><td><span class="badge text-bg-success">200</span></td><td class="small">{{ __('messages.players.api_docs_code_200') }}</td></tr>
+                            <tr><td><span class="badge text-bg-danger">401</span></td><td class="small">{{ __('messages.players.api_docs_code_401') }}</td></tr>
+                            <tr><td><span class="badge text-bg-danger">403</span></td><td class="small">{{ __('messages.players.api_docs_code_403') }}</td></tr>
+                            <tr><td><span class="badge text-bg-warning">404</span></td><td class="small">{{ __('messages.players.api_docs_code_404') }}</td></tr>
+                            <tr><td><span class="badge text-bg-warning">422</span></td><td class="small">{{ __('messages.players.api_docs_code_422') }}</td></tr>
+                            <tr><td><span class="badge text-bg-secondary">503</span></td><td class="small">{{ __('messages.players.api_docs_code_503') }}</td></tr>
                         </tbody>
                     </table>
                 </div>
