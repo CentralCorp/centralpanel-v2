@@ -405,8 +405,11 @@ class MultiInstanceApiTest extends TestCase
 
     public function test_upgrade_from_v1_0_8_schema_migrates_legacy_data_cleanly(): void
     {
-        // Roll back the 4 Phase-2+ v2.0 migrations so DB matches exact v1.0.8 schema
-        \Illuminate\Support\Facades\Artisan::call('migrate:rollback', ['--step' => 4]);
+        // Roll back all Phase-2+ v2.0 migrations so DB matches exact v1.0.8 schema
+        $v2MigrationCount = \Illuminate\Support\Facades\DB::table('migrations')
+            ->where('migration', '>', '2026_02_07_170526_add_accent_color_to_options_ui_table')
+            ->count();
+        \Illuminate\Support\Facades\Artisan::call('migrate:rollback', ['--step' => $v2MigrationCount]);
 
         $this->assertFalse(\Illuminate\Support\Facades\Schema::hasTable('instances'));
         $this->assertFalse(\Illuminate\Support\Facades\Schema::hasTable('panel_roles'));

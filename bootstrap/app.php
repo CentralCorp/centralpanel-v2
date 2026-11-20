@@ -18,6 +18,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'utils/auth/microsoft/*',
         ]);
 
+        $middleware->alias([
+            'player.api' => \App\Http\Middleware\AuthenticatePlayerApiToken::class,
+        ]);
+
         $middleware->web(append: [
             \App\Http\Middleware\SetLocale::class,
             \App\Http\Middleware\SyncActiveInstanceDisk::class,

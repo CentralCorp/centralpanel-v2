@@ -20,6 +20,7 @@ class MicrosoftPlayer extends Model
         'money',
         'is_banned',
         'ban_reason',
+        'banned_until',
         'skin_url',
         'cape_url',
         'last_seen_at',
@@ -29,12 +30,26 @@ class MicrosoftPlayer extends Model
         'role_id' => 'integer',
         'money' => 'integer',
         'is_banned' => 'boolean',
+        'banned_until' => 'datetime',
         'last_seen_at' => 'datetime',
     ];
 
     public function role(): BelongsTo
     {
         return $this->belongsTo(PanelRole::class, 'role_id');
+    }
+
+    public function isCurrentlyBanned(): bool
+    {
+        if (!$this->is_banned) {
+            return false;
+        }
+
+        if ($this->banned_until !== null && $this->banned_until->isPast()) {
+            return false;
+        }
+
+        return true;
     }
 
     public static function normalizeUuid(?string $uuid): ?string
@@ -46,5 +61,23 @@ class MicrosoftPlayer extends Model
         $clean = strtolower(str_replace('-', '', trim($uuid)));
 
         return $clean !== '' ? $clean : null;
+    }
+
+    public static function resolveByIdentifier(string $identifier): ?self
+    {
+        $trimmed = trim($identifier);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $normalizedUuid = self::normalizeUuid($trimmed);
+        if ($normalizedUuid !== null && preg_match('/^[0-9a-f]{32}$/', $normalizedUuid) === 1) {
+            $byUuid = self::where('uuid', $normalizedUuid)->first();
+            if ($byUuid) {
+                return $byUuid;
+            }
+        }
+
+        return self::whereRaw('LOWER(username) = ?', [strtolower($trimmed)])->first();
     }
 }

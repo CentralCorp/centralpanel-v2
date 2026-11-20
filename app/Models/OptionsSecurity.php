@@ -18,6 +18,7 @@ class OptionsSecurity extends Model
         'maintenance_bypass_roles',
         'maintenance_bypass_users',
         'whitelist',
+        'player_api_enabled',
     ];
 
     protected $casts = [
@@ -25,5 +26,6 @@ class OptionsSecurity extends Model
         'maintenance_bypass_roles' => 'array',
         'maintenance_bypass_users' => 'array',
         'whitelist' => 'boolean',
+        'player_api_enabled' => 'boolean',
     ];
 }

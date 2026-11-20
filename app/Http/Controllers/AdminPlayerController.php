@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\MicrosoftPlayer;
 use App\Models\PanelRole;
+use App\Models\PlayerApiToken;
 use App\Support\PanelOptions;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -14,6 +16,11 @@ class AdminPlayerController extends Controller
     {
         $defaultRole = PanelOptions::ensureRoles();
         $roles = PanelRole::orderByDesc('power')->orderBy('name')->get();
+        $securityOptions = PanelOptions::security();
+        $playerApiEnabled = (bool) $securityOptions->player_api_enabled;
+        $apiTokens = PlayerApiToken::orderByDesc('created_at')->get();
+        $availableAbilities = PlayerApiToken::ALL_ABILITIES;
+        $activeTab = $request->query('tab', session('new_api_token') ? 'api' : 'players');
 
         $search = trim((string) $request->query('q', ''));
         $roleFilter = $request->query('role_id');
@@ -33,7 +40,18 @@ class AdminPlayerController extends Controller
             ->orderBy('username')
             ->get();
 
-        return view('admin.players.index', compact('players', 'roles', 'defaultRole', 'search', 'roleFilter', 'statusFilter'));
+        return view('admin.players.index', compact(
+            'players',
+            'roles',
+            'defaultRole',
+            'search',
+            'roleFilter',
+            'statusFilter',
+            'playerApiEnabled',
+            'apiTokens',
+            'availableAbilities',
+            'activeTab'
+        ));
     }
 
     public function store(Request $request)
@@ -59,6 +77,7 @@ class AdminPlayerController extends Controller
             'money' => (int) $validated['money'],
             'is_banned' => $request->boolean('is_banned'),
             'ban_reason' => $request->boolean('is_banned') ? (($validated['ban_reason'] ?? null) ?: null) : null,
+            'banned_until' => null,
         ]);
 
         return redirect()->route('admin.players')->with('success', __('messages.flash.player_created', ['name' => $player->username]));
@@ -88,6 +107,7 @@ class AdminPlayerController extends Controller
             'money' => (int) $validated['money'],
             'is_banned' => $isBanned,
             'ban_reason' => $isBanned ? (($validated['ban_reason'] ?? null) ?: null) : null,
+            'banned_until' => $isBanned ? $player->banned_until : null,
         ]);
 
         return redirect()->route('admin.players')->with('success', __('messages.flash.player_updated', ['name' => $player->username]));
@@ -103,6 +123,7 @@ class AdminPlayerController extends Controller
         $player->update([
             'is_banned' => $newBanState,
             'ban_reason' => $newBanState ? (($validated['ban_reason'] ?? null) ?: $player->ban_reason) : null,
+            'banned_until' => $newBanState ? $player->banned_until : null,
         ]);
 
         $msgKey = $newBanState ? 'messages.flash.player_banned' : 'messages.flash.player_unbanned';
@@ -116,5 +137,53 @@ class AdminPlayerController extends Controller
         $player->delete();
 
         return redirect()->route('admin.players')->with('success', __('messages.flash.player_deleted', ['name' => $name]));
+    }
+
+    public function toggleApi(Request $request)
+    {
+        $security = PanelOptions::security();
+        $enabled = $request->boolean('player_api_enabled');
+        $security->update(['player_api_enabled' => $enabled]);
+
+        return redirect()
+            ->route('admin.players', ['tab' => 'api'])
+            ->with('success', $enabled
+                ? __('messages.players.api_enabled_flash')
+                : __('messages.players.api_disabled_flash'));
+    }
+
+    public function storeToken(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:100',
+            'abilities' => 'required|array|min:1',
+            'abilities.*' => ['required', 'string', Rule::in(PlayerApiToken::ALL_ABILITIES)],
+            'expires_at' => 'nullable|date|after:now',
+        ]);
+
+        $expiresAt = !empty($validated['expires_at']) ? Carbon::parse($validated['expires_at']) : null;
+
+        $generated = PlayerApiToken::generateToken(
+            $validated['name'],
+            $validated['abilities'],
+            $expiresAt,
+            $request->user()?->id
+        );
+
+        return redirect()
+            ->route('admin.players', ['tab' => 'api'])
+            ->with('new_api_token', $generated['plain_text'])
+            ->with('new_api_token_name', $generated['token']->name)
+            ->with('success', __('messages.players.api_token_created', ['name' => $generated['token']->name]));
+    }
+
+    public function destroyToken(PlayerApiToken $token)
+    {
+        $name = $token->name;
+        $token->delete();
+
+        return redirect()
+            ->route('admin.players', ['tab' => 'api'])
+            ->with('success', __('messages.players.api_token_revoked', ['name' => $name]));
     }
 }

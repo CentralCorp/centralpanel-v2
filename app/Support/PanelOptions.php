@@ -57,6 +57,7 @@ class PanelOptions
             'maintenance_bypass_roles' => [],
             'maintenance_bypass_users' => [],
             'whitelist' => false,
+            'player_api_enabled' => false,
         ]);
     }
 

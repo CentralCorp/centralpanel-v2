@@ -3,6 +3,11 @@
 @section('title', __('messages.players.title'))
 
 @section('content')
+@php
+    $apiBaseUrl = rtrim(url('/'), '/') . '/api/v1/players';
+    $currentTab = in_array($activeTab ?? 'players', ['players', 'api', 'docs'], true) ? $activeTab : 'players';
+@endphp
+
 <x-admin.page-header :title="__('messages.players.header')" :subtitle="__('messages.players.subtitle')" icon="bi-controller">
     <button type="button" class="btn btn-primary btn-icon" data-bs-toggle="modal" data-bs-target="#addPlayerModal">
         <i class="bi bi-person-plus"></i>
@@ -10,125 +15,488 @@
     </button>
 </x-admin.page-header>
 
-<div class="card shadow-sm mb-4">
-    <div class="card-body">
-        <form action="{{ route('admin.players') }}" method="GET" class="row g-3 align-items-end">
-            <div class="col-md-5">
-                <label for="q" class="form-label">{{ __('messages.common.search') }}</label>
-                <input type="text" class="form-control" id="q" name="q" value="{{ $search }}"
-                       placeholder="{{ __('messages.players.search_placeholder') }}">
+<ul class="nav nav-tabs mb-4" id="playersTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {{ $currentTab === 'players' ? 'active' : '' }}" id="tab-players-btn"
+                data-bs-toggle="tab" data-bs-target="#tab-players" type="button" role="tab">
+            <i class="bi bi-people me-1"></i>{{ __('messages.players.tab_players') }}
+            <span class="badge text-bg-secondary ms-1">{{ $players->count() }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {{ $currentTab === 'api' ? 'active' : '' }}" id="tab-api-btn"
+                data-bs-toggle="tab" data-bs-target="#tab-api" type="button" role="tab">
+            <i class="bi bi-key me-1"></i>{{ __('messages.players.tab_api') }}
+            <span class="badge {{ $playerApiEnabled ? 'text-bg-success' : 'text-bg-secondary' }} ms-1">
+                {{ $playerApiEnabled ? __('messages.players.api_status_enabled') : __('messages.players.api_status_disabled') }}
+            </span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {{ $currentTab === 'docs' ? 'active' : '' }}" id="tab-docs-btn"
+                data-bs-toggle="tab" data-bs-target="#tab-docs" type="button" role="tab">
+            <i class="bi bi-book me-1"></i>{{ __('messages.players.tab_api_docs') }}
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="playersTabsContent">
+    {{-- TAB 1: PLAYERS --}}
+    <div class="tab-pane fade {{ $currentTab === 'players' ? 'show active' : '' }}" id="tab-players" role="tabpanel">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <form action="{{ route('admin.players') }}" method="GET" class="row g-3 align-items-end">
+                    <div class="col-md-5">
+                        <label for="q" class="form-label">{{ __('messages.common.search') }}</label>
+                        <input type="text" class="form-control" id="q" name="q" value="{{ $search }}"
+                               placeholder="{{ __('messages.players.search_placeholder') }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="role_id" class="form-label">{{ __('messages.players.role') }}</label>
+                        <select class="form-select" id="role_id" name="role_id">
+                            <option value="">{{ __('messages.players.all_roles') }}</option>
+                            @foreach($roles as $r)
+                                <option value="{{ $r->id }}" {{ (string) $roleFilter === (string) $r->id ? 'selected' : '' }}>
+                                    {{ $r->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="status" class="form-label">{{ __('messages.players.status') }}</label>
+                        <select class="form-select" id="status" name="status">
+                            <option value="">{{ __('messages.players.all_statuses') }}</option>
+                            <option value="active" {{ $statusFilter === 'active' ? 'selected' : '' }}>{{ __('messages.players.active') }}</option>
+                            <option value="banned" {{ $statusFilter === 'banned' ? 'selected' : '' }}>{{ __('messages.players.banned') }}</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex gap-2">
+                        <button type="submit" class="btn btn-outline-primary btn-icon flex-grow-1">
+                            <i class="bi bi-funnel"></i>
+                            {{ __('messages.common.filter') }}
+                        </button>
+                        <a href="{{ route('admin.players') }}" class="btn btn-outline-secondary btn-square" title="{{ __('messages.common.reset') }}">
+                            <i class="bi bi-x-lg"></i>
+                        </a>
+                    </div>
+                </form>
             </div>
-            <div class="col-md-3">
-                <label for="role_id" class="form-label">{{ __('messages.players.role') }}</label>
-                <select class="form-select" id="role_id" name="role_id">
-                    <option value="">{{ __('messages.players.all_roles') }}</option>
-                    @foreach($roles as $r)
-                        <option value="{{ $r->id }}" {{ (string) $roleFilter === (string) $r->id ? 'selected' : '' }}>
-                            {{ $r->name }}
-                        </option>
-                    @endforeach
-                </select>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body">
+                @if($players->isEmpty())
+                    <div class="empty-state">
+                        <i class="bi bi-controller"></i>
+                        <span>{{ __('messages.players.no_players') }}</span>
+                    </div>
+                @else
+                    <div class="table-responsive">
+                        <table class="table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>{{ __('messages.players.username') }}</th>
+                                    <th>{{ __('messages.players.role') }}</th>
+                                    <th>{{ __('messages.players.money') }}</th>
+                                    <th>{{ __('messages.players.status') }}</th>
+                                    <th>{{ __('messages.players.last_seen') }}</th>
+                                    <th class="text-end">{{ __('messages.common.actions') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($players as $player)
+                                    <tr>
+                                        <td>
+                                            <div class="fw-semibold">{{ $player->username }}</div>
+                                            <div class="text-muted small font-monospace">{{ $player->uuid ?: '—' }}</div>
+                                        </td>
+                                        <td>
+                                            @php $role = $player->role ?? $defaultRole; @endphp
+                                            @if($role)
+                                                <span class="badge" style="background-color: {{ $role->color }};">{{ $role->name }}</span>
+                                            @endif
+                                        </td>
+                                        <td><strong>{{ number_format($player->money) }}</strong></td>
+                                        <td>
+                                            @if($player->isCurrentlyBanned())
+                                                <span class="badge text-bg-danger">{{ __('messages.players.banned') }}</span>
+                                                @if($player->ban_reason)
+                                                    <div class="text-danger small mt-1">{{ $player->ban_reason }}</div>
+                                                @endif
+                                                @if($player->banned_until)
+                                                    <div class="text-muted small">
+                                                        <i class="bi bi-clock me-1"></i>{{ __('messages.players.banned_until', ['date' => $player->banned_until->format('Y-m-d H:i')]) }}
+                                                    </div>
+                                                @endif
+                                            @else
+                                                <span class="badge text-bg-success">{{ __('messages.players.active') }}</span>
+                                            @endif
+                                        </td>
+                                        <td class="small text-muted">
+                                            {{ $player->last_seen_at ? $player->last_seen_at->format('Y-m-d H:i') : __('messages.players.never_seen') }}
+                                        </td>
+                                        <td class="text-end">
+                                            <div class="d-inline-flex gap-2">
+                                                <form action="{{ route('admin.players.toggleBan', $player) }}" method="POST" class="d-inline">
+                                                    @csrf
+                                                    <button type="submit"
+                                                            class="btn btn-sm {{ $player->is_banned ? 'btn-outline-success' : 'btn-outline-warning' }} btn-icon">
+                                                        <i class="bi {{ $player->is_banned ? 'bi-unlock' : 'bi-slash-circle' }}"></i>
+                                                        {{ $player->is_banned ? __('messages.players.unban') : __('messages.players.ban') }}
+                                                    </button>
+                                                </form>
+
+                                                <button type="button" class="btn btn-sm btn-outline-secondary btn-square"
+                                                        data-bs-toggle="modal" data-bs-target="#editPlayerModal_{{ $player->id }}">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+
+                                                <form action="{{ route('admin.players.destroy', $player) }}" method="POST" class="d-inline">
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger btn-square"
+                                                            data-confirm="{{ __('messages.players.confirm_delete') }}">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
             </div>
-            <div class="col-md-2">
-                <label for="status" class="form-label">{{ __('messages.players.status') }}</label>
-                <select class="form-select" id="status" name="status">
-                    <option value="">{{ __('messages.players.all_statuses') }}</option>
-                    <option value="active" {{ $statusFilter === 'active' ? 'selected' : '' }}>{{ __('messages.players.active') }}</option>
-                    <option value="banned" {{ $statusFilter === 'banned' ? 'selected' : '' }}>{{ __('messages.players.banned') }}</option>
-                </select>
-            </div>
-            <div class="col-md-2 d-flex gap-2">
-                <button type="submit" class="btn btn-outline-primary btn-icon flex-grow-1">
-                    <i class="bi bi-funnel"></i>
-                    {{ __('messages.common.filter') }}
-                </button>
-                <a href="{{ route('admin.players') }}" class="btn btn-outline-secondary btn-square" title="{{ __('messages.common.reset') }}">
-                    <i class="bi bi-x-lg"></i>
-                </a>
-            </div>
-        </form>
+        </div>
     </div>
-</div>
 
-<div class="card shadow-sm">
-    <div class="card-body">
-        @if($players->isEmpty())
-            <div class="empty-state">
-                <i class="bi bi-controller"></i>
-                <span>{{ __('messages.players.no_players') }}</span>
-            </div>
-        @else
-            <div class="table-responsive">
-                <table class="table align-middle">
-                    <thead>
-                        <tr>
-                            <th>{{ __('messages.players.username') }}</th>
-                            <th>{{ __('messages.players.role') }}</th>
-                            <th>{{ __('messages.players.money') }}</th>
-                            <th>{{ __('messages.players.status') }}</th>
-                            <th>{{ __('messages.players.last_seen') }}</th>
-                            <th class="text-end">{{ __('messages.common.actions') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($players as $player)
-                            <tr>
-                                <td>
-                                    <div class="fw-semibold">{{ $player->username }}</div>
-                                    <div class="text-muted small font-monospace">{{ $player->uuid ?: '—' }}</div>
-                                </td>
-                                <td>
-                                    @php $role = $player->role ?? $defaultRole; @endphp
-                                    @if($role)
-                                        <span class="badge" style="background-color: {{ $role->color }};">{{ $role->name }}</span>
-                                    @endif
-                                </td>
-                                <td><strong>{{ number_format($player->money) }}</strong></td>
-                                <td>
-                                    @if($player->is_banned)
-                                        <span class="badge text-bg-danger">{{ __('messages.players.banned') }}</span>
-                                        @if($player->ban_reason)
-                                            <div class="text-danger small mt-1">{{ $player->ban_reason }}</div>
-                                        @endif
-                                    @else
-                                        <span class="badge text-bg-success">{{ __('messages.players.active') }}</span>
-                                    @endif
-                                </td>
-                                <td class="small text-muted">
-                                    {{ $player->last_seen_at ? $player->last_seen_at->format('Y-m-d H:i') : __('messages.players.never_seen') }}
-                                </td>
-                                <td class="text-end">
-                                    <div class="d-inline-flex gap-2">
-                                        <form action="{{ route('admin.players.toggleBan', $player) }}" method="POST" class="d-inline">
-                                            @csrf
-                                            <button type="submit"
-                                                    class="btn btn-sm {{ $player->is_banned ? 'btn-outline-success' : 'btn-outline-warning' }} btn-icon">
-                                                <i class="bi {{ $player->is_banned ? 'bi-unlock' : 'bi-slash-circle' }}"></i>
-                                                {{ $player->is_banned ? __('messages.players.unban') : __('messages.players.ban') }}
-                                            </button>
-                                        </form>
-
-                                        <button type="button" class="btn btn-sm btn-outline-secondary btn-square"
-                                                data-bs-toggle="modal" data-bs-target="#editPlayerModal_{{ $player->id }}">
-                                            <i class="bi bi-pencil"></i>
-                                        </button>
-
-                                        <form action="{{ route('admin.players.destroy', $player) }}" method="POST" class="d-inline">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="btn btn-sm btn-outline-danger btn-square"
-                                                    data-confirm="{{ __('messages.players.confirm_delete') }}">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
+    {{-- TAB 2: EXTERNAL API MANAGEMENT --}}
+    <div class="tab-pane fade {{ $currentTab === 'api' ? 'show active' : '' }}" id="tab-api" role="tabpanel">
+        @if(session('new_api_token'))
+            <div class="alert alert-warning border-warning shadow-sm mb-4" role="alert">
+                <div class="d-flex align-items-start gap-2 mb-2">
+                    <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                    <div>
+                        <div class="fw-semibold">{{ session('new_api_token_name') }}</div>
+                        <div class="small">{{ __('messages.players.api_new_token_warning') }}</div>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <input type="text" class="form-control font-monospace" id="newApiTokenInput"
+                           value="{{ session('new_api_token') }}" readonly>
+                    <button type="button" class="btn btn-dark btn-copy-snippet" data-copy-target="#newApiTokenInput">
+                        <i class="bi bi-clipboard me-1"></i>{{ __('messages.players.api_copy') }}
+                    </button>
+                </div>
             </div>
         @endif
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div>
+                    <h2 class="h5 mb-1"><i class="bi bi-plug me-2"></i>{{ __('messages.players.api_title') }}</h2>
+                    <p class="text-muted small mb-0">{{ __('messages.players.api_desc') }}</p>
+                </div>
+                <form action="{{ route('admin.players.api.toggle') }}" method="POST" class="d-flex align-items-center gap-3">
+                    @csrf
+                    <div class="form-check form-switch mb-0">
+                        <input type="hidden" name="player_api_enabled" value="0">
+                        <input type="checkbox" class="form-check-input" id="player_api_enabled"
+                               name="player_api_enabled" value="1"
+                               {{ $playerApiEnabled ? 'checked' : '' }}
+                               onchange="this.form.submit()">
+                        <label class="form-check-label fw-semibold" for="player_api_enabled">
+                            {{ __('messages.players.api_enable_label') }}
+                        </label>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-12 col-lg-5">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header">
+                        <h3 class="h6 mb-0"><i class="bi bi-plus-circle me-2"></i>{{ __('messages.players.api_create_token') }}</h3>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('admin.players.api.tokens.store') }}" method="POST">
+                            @csrf
+                            <div class="mb-3">
+                                <label for="token_name" class="form-label">{{ __('messages.players.api_token_name') }}</label>
+                                <input type="text" class="form-control" id="token_name" name="name"
+                                       placeholder="{{ __('messages.players.api_token_name_placeholder') }}"
+                                       value="{{ old('name') }}" required maxlength="100">
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">{{ __('messages.players.api_token_abilities') }}</label>
+                                @foreach($availableAbilities as $ability)
+                                    @php
+                                        $abilityKey = 'messages.players.api_ability_' . str_replace(':', '_', $ability);
+                                    @endphp
+                                    <div class="form-check mb-1">
+                                        <input class="form-check-input" type="checkbox" name="abilities[]"
+                                               value="{{ $ability }}" id="ability_{{ str_replace(':', '_', $ability) }}"
+                                               checked>
+                                        <label class="form-check-label" for="ability_{{ str_replace(':', '_', $ability) }}">
+                                            {{ __($abilityKey) }}
+                                        </label>
+                                    </div>
+                                @endforeach
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="token_expires_at" class="form-label">{{ __('messages.players.api_token_expires') }}</label>
+                                <input type="datetime-local" class="form-control" id="token_expires_at" name="expires_at"
+                                       value="{{ old('expires_at') }}">
+                                <div class="form-text">{{ __('messages.players.api_token_expires_hint') }}</div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary btn-icon w-100">
+                                <i class="bi bi-key"></i>
+                                {{ __('messages.players.api_create_token') }}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-12 col-lg-7">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header">
+                        <h3 class="h6 mb-0"><i class="bi bi-shield-lock me-2"></i>{{ __('messages.players.api_tokens_list') }}</h3>
+                    </div>
+                    <div class="card-body">
+                        @if($apiTokens->isEmpty())
+                            <div class="empty-state">
+                                <i class="bi bi-key"></i>
+                                <span>{{ __('messages.players.api_no_tokens') }}</span>
+                            </div>
+                        @else
+                            <div class="table-responsive">
+                                <table class="table align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>{{ __('messages.players.api_token_name') }}</th>
+                                            <th>{{ __('messages.players.api_token_abilities') }}</th>
+                                            <th>{{ __('messages.players.api_last_used') }}</th>
+                                            <th class="text-end">{{ __('messages.common.actions') }}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($apiTokens as $token)
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">{{ $token->name }}</div>
+                                                    <div class="small text-muted font-monospace">{{ $token->token_prefix }}••••••••</div>
+                                                    @if($token->expires_at)
+                                                        <div class="small {{ $token->isExpired() ? 'text-danger' : 'text-muted' }}">
+                                                            {{ $token->isExpired() ? __('messages.players.api_expired') : __('messages.players.api_expires_at') }}:
+                                                            {{ $token->expires_at->format('Y-m-d H:i') }}
+                                                        </div>
+                                                    @endif
+                                                </td>
+                                                <td>
+                                                    <div class="d-flex flex-wrap gap-1">
+                                                        @foreach(($token->abilities ?? []) as $ab)
+                                                            <span class="badge text-bg-secondary font-monospace">{{ $ab }}</span>
+                                                        @endforeach
+                                                    </div>
+                                                </td>
+                                                <td class="small text-muted">
+                                                    {{ $token->last_used_at ? $token->last_used_at->format('Y-m-d H:i') : __('messages.players.api_never_used') }}
+                                                </td>
+                                                <td class="text-end">
+                                                    <form action="{{ route('admin.players.api.tokens.destroy', $token) }}" method="POST" class="d-inline">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger btn-icon"
+                                                                data-confirm="{{ __('messages.players.api_confirm_revoke') }}">
+                                                            <i class="bi bi-trash"></i>
+                                                            {{ __('messages.players.api_revoke') }}
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{-- TAB 3: INTERACTIVE API DOCUMENTATION --}}
+    <div class="tab-pane fade {{ $currentTab === 'docs' ? 'show active' : '' }}" id="tab-docs" role="tabpanel">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">
+                <h2 class="h5 mb-0"><i class="bi bi-book me-2"></i>{{ __('messages.players.api_docs_title') }}</h2>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="panel-muted-surface p-3 h-100">
+                            <div class="small text-muted mb-1">{{ __('messages.players.api_docs_base_url') }}</div>
+                            <code class="fs-6">{{ $apiBaseUrl }}</code>
+                            <div class="small text-muted mt-2">{{ __('messages.players.api_docs_identifier_hint') }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="panel-muted-surface p-3 h-100">
+                            <div class="fw-semibold mb-1">{{ __('messages.players.api_docs_auth_title') }}</div>
+                            <p class="small text-muted mb-2">{{ __('messages.players.api_docs_auth_desc') }}</p>
+                            <code class="d-block small">Authorization: Bearer &lt;YOUR_TOKEN&gt;</code>
+                            <code class="d-block small">Content-Type: application/json</code>
+                        </div>
+                    </div>
+                </div>
+
+                @php
+                    $endpoints = [
+                        [
+                            'id' => 'ban',
+                            'method' => 'POST',
+                            'badge' => 'text-bg-danger',
+                            'path' => '/{uuid_or_username}/ban',
+                            'ability' => 'players:ban',
+                            'desc' => 'Bannit un joueur (permanent ou temporaire via duration en secondes ou expires_at ISO8601).',
+                            'payload' => "{\n  \"reason\": \"Comportement inapproprié\",\n  \"duration\": 3600\n}",
+                            'fields' => [
+                                ['reason', 'string (optionnel)', 'Raison du bannissement (défaut : "Banned via API").'],
+                                ['duration', 'integer (optionnel)', 'Durée en secondes (>= 1). Prioritaire sur expires_at.'],
+                                ['expires_at', 'ISO8601 (optionnel)', 'Date de fin du ban dans le futur (ex: 2026-12-31T23:59:59Z).'],
+                            ],
+                            'curl' => "curl -X POST \"{$apiBaseUrl}/Notch/ban\" \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"reason\":\"Triche détectée\",\"duration\":3600}'",
+                        ],
+                        [
+                            'id' => 'unban',
+                            'method' => 'POST',
+                            'badge' => 'text-bg-success',
+                            'path' => '/{uuid_or_username}/unban',
+                            'ability' => 'players:unban',
+                            'desc' => 'Lève immédiatement le bannissement du joueur (efface la raison et la date d\'expiration).',
+                            'payload' => '{}',
+                            'fields' => [],
+                            'curl' => "curl -X POST \"{$apiBaseUrl}/Notch/unban\" \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -H \"Content-Type: application/json\"",
+                        ],
+                        [
+                            'id' => 'role',
+                            'method' => 'PATCH',
+                            'badge' => 'text-bg-primary',
+                            'path' => '/{uuid_or_username}/role',
+                            'ability' => 'players:role',
+                            'desc' => 'Assigne un rôle Panel existant (par ID ou nom) ou retire le rôle avec role_id: null.',
+                            'payload' => "{\n  \"role\": \"VIP\"\n}",
+                            'fields' => [
+                                ['role_id', 'integer|null', 'ID du PanelRole à assigner, ou null pour retirer le rôle.'],
+                                ['role', 'string|null', 'Nom du PanelRole (insensible à la casse), alternatif à role_id.'],
+                            ],
+                            'curl' => "curl -X PATCH \"{$apiBaseUrl}/Notch/role\" \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"role\":\"VIP\"}'",
+                        ],
+                        [
+                            'id' => 'points',
+                            'method' => 'PATCH',
+                            'badge' => 'text-bg-warning',
+                            'path' => '/{uuid_or_username}/points',
+                            'ability' => 'players:points',
+                            'desc' => 'Modifie les points / monnaie du joueur (set, add, remove sans jamais descendre sous 0).',
+                            'payload' => "{\n  \"action\": \"add\",\n  \"amount\": 100\n}",
+                            'fields' => [
+                                ['action', 'string (requis)', 'Opération : "set", "add" ou "remove".'],
+                                ['amount', 'integer (requis)', 'Montant entier positif ou nul (>= 0).'],
+                            ],
+                            'curl' => "curl -X PATCH \"{$apiBaseUrl}/Notch/points\" \\\n  -H \"Authorization: Bearer YOUR_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"action\":\"add\",\"amount\":100}'",
+                        ],
+                    ];
+                @endphp
+
+                <div class="accordion mb-4" id="apiDocsAccordion">
+                    @foreach($endpoints as $ep)
+                        <div class="accordion-item">
+                            <h3 class="accordion-header">
+                                <button class="accordion-button {{ $loop->first ? '' : 'collapsed' }}" type="button"
+                                        data-bs-toggle="collapse" data-bs-target="#collapse_{{ $ep['id'] }}">
+                                    <span class="badge {{ $ep['badge'] }} me-2">{{ $ep['method'] }}</span>
+                                    <code class="me-3">/api/v1/players{{ $ep['path'] }}</code>
+                                    <span class="badge text-bg-secondary font-monospace ms-auto me-2">{{ $ep['ability'] }}</span>
+                                </button>
+                            </h3>
+                            <div id="collapse_{{ $ep['id'] }}" class="accordion-collapse collapse {{ $loop->first ? 'show' : '' }}"
+                                 data-bs-parent="#apiDocsAccordion">
+                                <div class="accordion-body">
+                                    <p class="mb-3">{{ $ep['desc'] }}</p>
+
+                                    @if(!empty($ep['fields']))
+                                        <div class="table-responsive mb-3">
+                                            <table class="table table-sm table-bordered mb-0">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Champ</th>
+                                                        <th>Type</th>
+                                                        <th>Description</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach($ep['fields'] as $field)
+                                                        <tr>
+                                                            <td><code>{{ $field[0] }}</code></td>
+                                                            <td class="small">{{ $field[1] }}</td>
+                                                            <td class="small">{{ $field[2] }}</td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    @endif
+
+                                    <div class="row g-3">
+                                        <div class="col-md-5">
+                                            <div class="small fw-semibold mb-1">Payload JSON</div>
+                                            <pre class="bg-dark text-light p-3 rounded small mb-0"><code>{{ $ep['payload'] }}</code></pre>
+                                        </div>
+                                        <div class="col-md-7">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <span class="small fw-semibold">Exemple cURL</span>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary btn-copy-snippet"
+                                                        data-copy-target="#curl_{{ $ep['id'] }}">
+                                                    <i class="bi bi-clipboard me-1"></i>{{ __('messages.players.api_copy') }}
+                                                </button>
+                                            </div>
+                                            <pre class="bg-dark text-light p-3 rounded small mb-0"><code id="curl_{{ $ep['id'] }}">{{ $ep['curl'] }}</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+
+                <h3 class="h6 fw-semibold mb-2">{{ __('messages.players.api_docs_codes_title') }}</h3>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Signification</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><span class="badge text-bg-success">200</span></td><td class="small">Succès : le joueur a été mis à jour et ses données actualisées sont retournées en JSON.</td></tr>
+                            <tr><td><span class="badge text-bg-danger">401</span></td><td class="small">Token Bearer manquant, invalide ou expiré.</td></tr>
+                            <tr><td><span class="badge text-bg-danger">403</span></td><td class="small">Le token ne possède pas la permission requise pour cet endpoint.</td></tr>
+                            <tr><td><span class="badge text-bg-warning">404</span></td><td class="small">Joueur introuvable pour l'UUID ou le pseudo fourni.</td></tr>
+                            <tr><td><span class="badge text-bg-warning">422</span></td><td class="small">Erreur de validation du payload JSON ou rôle inexistant.</td></tr>
+                            <tr><td><span class="badge text-bg-secondary">503</span></td><td class="small">L'API Externe Joueurs est actuellement désactivée dans le panel.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -246,3 +614,30 @@
     </div>
 @endforeach
 @endsection
+
+@push('scripts')
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const copiedLabel = @json(__('messages.players.api_copied'));
+    const copyLabel = @json(__('messages.players.api_copy'));
+
+    document.querySelectorAll('.btn-copy-snippet').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const targetSelector = btn.getAttribute('data-copy-target');
+            const target = targetSelector ? document.querySelector(targetSelector) : null;
+            if (!target) return;
+
+            const text = target.value !== undefined ? target.value : target.textContent;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function () {
+                    btn.innerHTML = '<i class="bi bi-check2 me-1"></i>' + copiedLabel;
+                    setTimeout(function () {
+                        btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>' + copyLabel;
+                    }, 1800);
+                });
+            }
+        });
+    });
+});
+</script>
+@endpush

@@ -125,12 +125,25 @@ class MicrosoftAuthController extends Controller
             $player->save();
         }
 
-        if ($player->is_banned) {
-            return response()->json([
+        if ($player->is_banned && $player->banned_until !== null && $player->banned_until->isPast()) {
+            $player->forceFill([
+                'is_banned' => false,
+                'ban_reason' => null,
+                'banned_until' => null,
+            ])->save();
+        }
+
+        if ($player->isCurrentlyBanned()) {
+            $payload = [
                 'status' => 'error',
                 'reason' => 'user_banned',
                 'message' => $player->ban_reason ?: 'Account banned',
-            ], 403, [], LauncherResponse::JSON_FLAGS);
+            ];
+            if ($player->banned_until !== null) {
+                $payload['banned_until'] = $player->banned_until->toIso8601String();
+            }
+
+            return response()->json($payload, 403, [], LauncherResponse::JSON_FLAGS);
         }
 
         $role = $player->role()->first() ?? $defaultRole;
